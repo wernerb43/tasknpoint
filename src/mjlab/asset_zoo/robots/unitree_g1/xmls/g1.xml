@@ -183,12 +183,14 @@
         <geom class="visual" mesh="waist_yaw_link"/>
         <body name="waist_roll_link" pos="-0.0039635 0 0.044">
           <inertial pos="0 2.3e-05 0" quat="0.5 0.5 -0.5 0.5" mass="0.086" diaginertia="8.245e-06 7.079e-06 6.339e-06"/>
-          <joint name="waist_roll_joint" axis="1 0 0" range="-0.52 0.52"/>
+          <!-- Waist roll joint: actual range -0.52-0.52 -->
+          <joint name="waist_roll_joint" axis="1 0 0" range="-0.001 0.001"/>
           <geom class="visual" mesh="waist_roll_link"/>
           <body name="torso_link">
             <inertial pos="0.00203158 0.000339683 0.184568" quat="0.999803 -6.03319e-05 0.0198256 0.00131986"
               mass="7.818" diaginertia="0.121847 0.109825 0.0273735"/>
-            <joint name="waist_pitch_joint" axis="0 1 0" range="-0.52 0.52"/>
+            <!-- Waist pitch joint: actual range -0.52-0.52 -->
+            <joint name="waist_pitch_joint" axis="0 1 0" range="-0.001 0.001"/>
             <geom class="visual" mesh="torso_link"/>
             <geom class="visual" pos="0.0039635 0 -0.044" quat="1 0 0 0" material="black" mesh="logo_link"/>
             <geom class="visual" pos="0.0039635 0 -0.044" material="black" mesh="head_link"/>
