@@ -13,7 +13,7 @@ import tyro
 from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
 from mjlab.rl import MjlabOnPolicyRunner, RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_runner_cls
-from mjlab.tasks.tracking.mdp import MotionCommandCfg
+from mjlab.tasks.tracking.mdp import MotionCommandCfg, MultiTargetMotionCommandCfg
 from mjlab.utils.gpu import select_gpus
 from mjlab.utils.os import dump_yaml, get_checkpoint_path, get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
@@ -71,8 +71,39 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
   is_tracking_task = "motion" in cfg.env.commands and isinstance(
     cfg.env.commands["motion"], MotionCommandCfg
   )
+  is_multi_target_task = "motion" in cfg.env.commands and isinstance(
+    cfg.env.commands["motion"], MultiTargetMotionCommandCfg
+  )
 
-  if is_tracking_task:
+  if is_multi_target_task:
+    motion_cmd = cfg.env.commands["motion"]
+    assert isinstance(motion_cmd, MultiTargetMotionCommandCfg)
+
+    if motion_cmd.motion_files and all(
+      Path(f).exists() for f in motion_cmd.motion_files
+    ):
+      print(f"[INFO] Using local motion files: {motion_cmd.motion_files}")
+    elif cfg.registry_name:
+      registry_name = cast(str, cfg.registry_name)
+      registry_names = [r.strip() for r in registry_name.split(",")]
+      import wandb
+
+      api = wandb.Api()
+      motion_files: list[str] = []
+      for rn in registry_names:
+        if ":" not in rn:
+          rn = rn + ":latest"
+        artifact = api.artifact(rn)
+        motion_files.append(str(Path(artifact.download()) / "motion.npz"))
+        print(f"[INFO] Downloaded motion: {rn} -> {motion_files[-1]}")
+      motion_cmd.motion_files = motion_files
+    else:
+      raise ValueError(
+        "For multi-target tracking tasks, provide either:\n"
+        "  --registry-name name1,name2,... (comma-separated WandB registry names)\n"
+        "  --env.commands.motion.motion-files '[f1.npz,f2.npz]' (local files)"
+      )
+  elif is_tracking_task:
     motion_cmd = cfg.env.commands["motion"]
     assert isinstance(motion_cmd, MotionCommandCfg)
 
@@ -152,7 +183,7 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     runner_cls = MjlabOnPolicyRunner
 
   runner_kwargs = {}
-  if is_tracking_task:
+  if is_tracking_task or is_multi_target_task:
     runner_kwargs["registry_name"] = registry_name
 
   # Write config files before runner creation, since the runner mutates agent_cfg

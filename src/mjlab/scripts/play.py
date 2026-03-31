@@ -12,7 +12,7 @@ import tyro
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_runner_cls
-from mjlab.tasks.tracking.mdp import MotionCommandCfg
+from mjlab.tasks.tracking.mdp import MotionCommandCfg, MultiTargetMotionCommandCfg
 from mjlab.utils.os import get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
@@ -63,6 +63,9 @@ def run_play(task_id: str, cfg: PlayConfig):
   is_tracking_task = "motion" in env_cfg.commands and isinstance(
     env_cfg.commands["motion"], MotionCommandCfg
   )
+  is_multi_target_task = "motion" in env_cfg.commands and isinstance(
+    env_cfg.commands["motion"], MultiTargetMotionCommandCfg
+  )
 
   if is_tracking_task and cfg._demo_mode:
     # Demo mode: use uniform sampling to see more diversity with num_envs > 1.
@@ -70,7 +73,77 @@ def run_play(task_id: str, cfg: PlayConfig):
     assert isinstance(motion_cmd, MotionCommandCfg)
     motion_cmd.sampling_mode = "uniform"
 
-  if is_tracking_task:
+  if is_multi_target_task and cfg._demo_mode:
+    motion_cmd = env_cfg.commands["motion"]
+    assert isinstance(motion_cmd, MultiTargetMotionCommandCfg)
+    motion_cmd.sampling_mode = "uniform"
+
+  if is_multi_target_task:
+    motion_cmd = env_cfg.commands["motion"]
+    assert isinstance(motion_cmd, MultiTargetMotionCommandCfg)
+
+    if cfg.motion_file is not None:
+      # Comma-separated local paths.
+      files = [f.strip() for f in cfg.motion_file.split(",")]
+      for f in files:
+        if not Path(f).exists():
+          raise FileNotFoundError(f"Motion file not found: {f}")
+      motion_cmd.motion_files = files
+      print(f"[INFO]: Using local motion files: {files}")
+    elif DUMMY_MODE:
+      if not cfg.registry_name:
+        raise ValueError(
+          "Multi-target tracking tasks require either:\n"
+          "  --motion-file f1.npz,f2.npz (comma-separated local files)\n"
+          "  --registry-name name1,name2 (comma-separated WandB registry names)"
+        )
+      import wandb
+
+      api = wandb.Api()
+      registry_names = [r.strip() for r in cfg.registry_name.split(",")]
+      motion_files: list[str] = []
+      for rn in registry_names:
+        if ":" not in rn:
+          rn = rn + ":latest"
+        artifact = api.artifact(rn)
+        motion_files.append(str(Path(artifact.download()) / "motion.npz"))
+        print(f"[INFO]: Downloaded motion: {rn} -> {motion_files[-1]}")
+      motion_cmd.motion_files = motion_files
+    else:
+      # Trained mode: resolve motion artifacts from the W&B training run.
+      import wandb
+
+      api = wandb.Api()
+      if cfg.registry_name:
+        # Explicit comma-separated registry names override artifact resolution.
+        registry_names = [r.strip() for r in cfg.registry_name.split(",")]
+        motion_files = []
+        for rn in registry_names:
+          if ":" not in rn:
+            rn = rn + ":latest"
+          artifact = api.artifact(rn)
+          motion_files.append(str(Path(artifact.download()) / "motion.npz"))
+          print(f"[INFO]: Downloaded motion: {rn} -> {motion_files[-1]}")
+        motion_cmd.motion_files = motion_files
+      elif cfg.wandb_run_path is not None:
+        wandb_run = api.run(str(cfg.wandb_run_path))
+        arts = [a for a in wandb_run.used_artifacts() if a.type == "motions"]
+        if not arts:
+          raise RuntimeError("No motion artifacts found in the run.")
+        motion_files = []
+        for art in arts:
+          motion_files.append(str(Path(art.download()) / "motion.npz"))
+          print(f"[INFO]: Downloaded motion artifact: {art.name} -> {motion_files[-1]}")
+        motion_cmd.motion_files = motion_files
+      else:
+        raise ValueError(
+          "Multi-target tracking tasks require motion files. Provide one of:\n"
+          "  --motion-file f1.npz,f2.npz (comma-separated local files)\n"
+          "  --registry-name name1,name2 (comma-separated WandB registry names)\n"
+          "  --wandb-run-path entity/project/run_id (resolve from training run)"
+        )
+
+  elif is_tracking_task:
     motion_cmd = env_cfg.commands["motion"]
     assert isinstance(motion_cmd, MotionCommandCfg)
 

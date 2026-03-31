@@ -5,7 +5,7 @@ import pytest
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.tasks.registry import list_tasks, load_env_cfg
-from mjlab.tasks.tracking.mdp import MotionCommandCfg
+from mjlab.tasks.tracking.mdp import MotionCommandCfg, MultiTargetMotionCommandCfg
 
 
 @pytest.fixture(scope="module")
@@ -28,8 +28,9 @@ def test_tracking_tasks_have_motion_command(tracking_task_ids: list[str]) -> Non
     assert "motion" in cfg.commands, f"Task {task_id} missing 'motion' command"
 
     motion_cmd = cfg.commands["motion"]
-    assert isinstance(motion_cmd, MotionCommandCfg), (
-      f"Task {task_id} motion command is not MotionCommandCfg"
+    assert isinstance(motion_cmd, (MotionCommandCfg, MultiTargetMotionCommandCfg)), (
+      f"Task {task_id} motion command is not MotionCommandCfg or "
+      f"MultiTargetMotionCommandCfg"
     )
 
 
@@ -77,14 +78,15 @@ def test_tracking_play_disables_rsi_randomization() -> None:
   tracking_tasks = [
     "Mjlab-Tracking-Flat-Unitree-G1",
     "Mjlab-Tracking-Flat-Unitree-G1-No-State-Estimation",
+    "Mjlab-MultiTarget-Tracking-Flat-Unitree-G1",
   ]
 
   for task_id in tracking_tasks:
     cfg = load_env_cfg(task_id, play=True)
 
     motion_cmd = cfg.commands["motion"]
-    assert isinstance(motion_cmd, MotionCommandCfg), (
-      f"Task {task_id} (play mode) motion command is not MotionCommandCfg"
+    assert isinstance(motion_cmd, (MotionCommandCfg, MultiTargetMotionCommandCfg)), (
+      f"Task {task_id} (play mode) motion command has unexpected type"
     )
 
     assert motion_cmd.pose_range == {}, (
@@ -102,14 +104,15 @@ def test_tracking_play_uses_start_sampling_mode() -> None:
   tracking_tasks = [
     "Mjlab-Tracking-Flat-Unitree-G1",
     "Mjlab-Tracking-Flat-Unitree-G1-No-State-Estimation",
+    "Mjlab-MultiTarget-Tracking-Flat-Unitree-G1",
   ]
 
   for task_id in tracking_tasks:
     cfg = load_env_cfg(task_id, play=True)
 
     motion_cmd = cfg.commands["motion"]
-    assert isinstance(motion_cmd, MotionCommandCfg), (
-      f"Task {task_id} (play mode) motion command is not MotionCommandCfg"
+    assert isinstance(motion_cmd, (MotionCommandCfg, MultiTargetMotionCommandCfg)), (
+      f"Task {task_id} (play mode) motion command has unexpected type"
     )
 
     assert motion_cmd.sampling_mode == "start", (

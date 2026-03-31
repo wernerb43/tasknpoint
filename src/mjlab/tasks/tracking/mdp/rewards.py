@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, cast
 import torch
 
 from mjlab.sensor import ContactSensor
-from mjlab.utils.lab_api.math import quat_error_magnitude
+from mjlab.utils.lab_api.math import quat_apply, quat_error_magnitude
 
-from .commands import MotionCommand
+from .commands import MotionCommand, MultiTargetMotionCommand
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
@@ -133,3 +133,101 @@ def self_collision_cost(
     return hit.sum(dim=-1).float()  # [B]
   assert data.found is not None
   return data.found.squeeze(-1)
+
+
+def all_motions_target_position_error_exp(
+  env: ManagerBasedRlEnv,
+  target_command_name: str,
+  std: float,
+  per_motion_weights: list[float],
+) -> torch.Tensor:
+  """Phase-gated exponential reward for target position tracking.
+
+  Each env gets the reward for its currently active motion, scaled by the
+  corresponding entry in *per_motion_weights*.  Set a weight to 0.0 to
+  disable the position reward for that motion.
+  """
+  command = cast(
+    MultiTargetMotionCommand,
+    env.command_manager.get_term(target_command_name),
+  )
+  which_motion = command.which_motion
+
+  source_positions = command.get_source_pos_w()
+
+  error = torch.sum(torch.square(command.target_position_w - source_positions), dim=-1)
+  reward = torch.exp(-error / std**2)
+
+  time_step_totals = torch.tensor(
+    [loader.time_step_total for loader in command.motion_loaders],
+    device=command.device,
+    dtype=torch.float32,
+  )
+  phase = command.time_steps / time_step_totals[which_motion]
+  active = (phase >= command.target_phase_start) & (phase <= command.target_phase_end)
+
+  weights = torch.tensor(per_motion_weights, device=command.device, dtype=torch.float32)
+  per_env_weight = weights[which_motion]
+
+  return reward * active.float() * per_env_weight
+
+
+def all_motions_target_orientation_axis_alignment_error_exp(
+  env: ManagerBasedRlEnv,
+  target_command_name: str,
+  std: float,
+  axis: str,
+  per_motion_weights: list[float],
+) -> torch.Tensor:
+  """Phase-gated exponential reward for single-axis orientation alignment.
+
+  Each env gets the reward for its currently active motion, scaled by the
+  corresponding entry in *per_motion_weights*.
+  """
+  command = cast(
+    MultiTargetMotionCommand,
+    env.command_manager.get_term(target_command_name),
+  )
+  which_motion = command.which_motion
+
+  source_quats = command.get_source_quat_w()
+
+  axis_map = {
+    "x": torch.tensor([1.0, 0.0, 0.0], device=command.device),
+    "y": torch.tensor([0.0, 1.0, 0.0], device=command.device),
+    "z": torch.tensor([0.0, 0.0, 1.0], device=command.device),
+  }
+  if axis not in axis_map:
+    raise ValueError(f"Invalid axis '{axis}'. Expected 'x', 'y', or 'z'.")
+
+  axis_vec = axis_map[axis].expand(command.num_envs, 3)
+  target_axis_w = quat_apply(command.target_orientation_w, axis_vec)
+  source_axis_w = quat_apply(source_quats, axis_vec)
+
+  dot = torch.sum(target_axis_w * source_axis_w, dim=-1).clamp(-1.0, 1.0)
+  error = 1.0 - dot
+  reward = torch.exp(-(error**2) / std**2)
+
+  time_step_totals = torch.tensor(
+    [loader.time_step_total for loader in command.motion_loaders],
+    device=command.device,
+    dtype=torch.float32,
+  )
+  phase = command.time_steps / time_step_totals[which_motion]
+  active = (phase >= command.target_phase_start) & (phase <= command.target_phase_end)
+
+  weights = torch.tensor(per_motion_weights, device=command.device, dtype=torch.float32)
+  per_env_weight = weights[which_motion]
+
+  return reward * active.float() * per_env_weight
+
+
+def action_rate_l2_clamped(
+  env: ManagerBasedRlEnv, max_value: float = 50.0
+) -> torch.Tensor:
+  """Penalize the rate of change of actions, clamped to a max value."""
+  raw = torch.sum(
+    torch.square(env.action_manager.action - env.action_manager.prev_action),
+    dim=1,
+  )
+  return torch.clamp(raw, max=max_value)
