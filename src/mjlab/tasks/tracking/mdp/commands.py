@@ -548,6 +548,9 @@ class MultiTargetMotionCommand(CommandTerm):
       device=self.device,
     )
 
+    def _get(lst: list, idx: int, default):  # noqa: ANN001, ANN202
+      return lst[idx] if idx < len(lst) else default
+
     # Build per-motion configs and loaders.
     self.motion_loaders: list[MotionLoader] = []
     self.motion_configs: list[MotionTargetCfg] = []
@@ -555,9 +558,6 @@ class MultiTargetMotionCommand(CommandTerm):
       self.motion_loaders.append(
         MotionLoader(motion_file, self.body_indexes, device=self.device)
       )
-
-      def _get(lst: list, idx: int, default):  # noqa: ANN001, ANN202
-        return lst[idx] if idx < len(lst) else default
 
       source_types = self.cfg.source_link_types
       target_types = self.cfg.target_link_types
@@ -843,14 +843,7 @@ class MultiTargetMotionCommand(CommandTerm):
 
   @property
   def command(self) -> torch.Tensor:
-    """Joint pos/vel + target position/orientation in body frame."""
-    anchor_pos_w = self.robot.data.body_link_pos_w[:, self.robot_anchor_body_index]
-    anchor_quat_w = self.robot.data.body_link_quat_w[:, self.robot_anchor_body_index]
-    anchor_quat_inv = quat_inv(anchor_quat_w)
-    self.target_position_b = quat_apply(
-      anchor_quat_inv, self.target_position_w - anchor_pos_w
-    )
-    self.target_orientation_b = quat_mul(anchor_quat_inv, self.target_orientation_w)
+    """Joint pos/vel + target position/orientation frozen in anchor frame at step 0."""
     return torch.cat(
       [
         self.joint_pos,
@@ -1000,26 +993,83 @@ class MultiTargetMotionCommand(CommandTerm):
     return self.robot.data.body_link_ang_vel_w[:, self.robot_anchor_body_index]
 
   # ------------------------------------------------------------------
+  # Link-state helpers (body or site)
+  # ------------------------------------------------------------------
+
+  def _fetch_link_state(
+    self,
+    env_ids: torch.Tensor,
+    indices_t: torch.Tensor,
+    is_site_t: torch.Tensor,
+  ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return ``(pos, quat)`` in world frame for each env in *env_ids*.
+
+    *indices_t* and *is_site_t* are per-env body or site indices and flags
+    (already indexed for this batch).
+    """
+    pos = torch.zeros(len(env_ids), 3, device=self.device)
+    quat = torch.zeros(len(env_ids), 4, device=self.device)
+    quat[:, 0] = 1.0
+    body_mask = ~is_site_t
+    if torch.any(body_mask):
+      bi = env_ids[body_mask]
+      pos[body_mask] = self.robot.data.body_link_pos_w[bi, indices_t[body_mask]]
+      quat[body_mask] = self.robot.data.body_link_quat_w[bi, indices_t[body_mask]]
+    if torch.any(is_site_t):
+      si = env_ids[is_site_t]
+      pos[is_site_t] = self.robot.data.site_pos_w[si, indices_t[is_site_t]]
+      quat[is_site_t] = self.robot.data.site_quat_w[si, indices_t[is_site_t]]
+    return pos, quat
+
+  def _fetch_target_pos_quat(
+    self, env_ids: torch.Tensor, motion_ids: torch.Tensor
+  ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Read world-frame position and quaternion of the target link for each env."""
+    return self._fetch_link_state(
+      env_ids,
+      self._target_body_indices_t[motion_ids],
+      self._target_is_site_t[motion_ids],
+    )
+
+  # ------------------------------------------------------------------
   # Target sampling
   # ------------------------------------------------------------------
+
+  def _freeze_target_b(self, env_ids: torch.Tensor) -> None:
+    """Convert world-frame target to anchor frame and freeze it.
+
+    Uses the motion-reference anchor at the current time step (always 0 with
+    ``sampling_mode="start"``) rather than the robot's actual body state, so
+    the result is stable immediately after a robot reset.
+    """
+    anchor_pos = self.anchor_pos_w[env_ids]
+    anchor_quat_inv = quat_inv(self.anchor_quat_w[env_ids])
+    self.target_position_b[env_ids] = quat_apply(
+      anchor_quat_inv, self.target_position_w[env_ids] - anchor_pos
+    )
+    self.target_orientation_b[env_ids] = quat_mul(
+      anchor_quat_inv, self.target_orientation_w[env_ids]
+    )
 
   def _sample_targets(self, env_ids: torch.Tensor) -> None:
     """Sample target positions/orientations for *env_ids*."""
     motion_ids = self.which_motion[env_ids]
 
-    # Moving targets (tracking another body link).
+    # Moving targets (tracking another body link or site).
     has_moving = self._has_target_link[motion_ids]
     if torch.any(has_moving):
       moving_env_ids = env_ids[has_moving]
       moving_motion_ids = motion_ids[has_moving]
-      target_body_idx = self._target_body_indices_t[moving_motion_ids]
-      self.target_position_w[moving_env_ids] = (
-        self.robot.data.body_link_pos_w[moving_env_ids, target_body_idx]
-        + self._target_pos_offsets_t[moving_motion_ids]
+      target_pos, target_quat = self._fetch_target_pos_quat(
+        moving_env_ids, moving_motion_ids
       )
-      offset_quats = self._target_offset_quats[moving_motion_ids]
-      body_quats = self.robot.data.body_link_quat_w[moving_env_ids, target_body_idx]
-      self.target_orientation_w[moving_env_ids] = quat_mul(body_quats, offset_quats)
+      offset_pos_w = quat_apply(
+        target_quat, self._target_pos_offsets_t[moving_motion_ids]
+      )
+      self.target_position_w[moving_env_ids] = target_pos + offset_pos_w
+      self.target_orientation_w[moving_env_ids] = quat_mul(
+        target_quat, self._target_offset_quats[moving_motion_ids]
+      )
 
     # Static targets (sampled from Gaussian).
     has_static = ~has_moving
@@ -1043,13 +1093,17 @@ class MultiTargetMotionCommand(CommandTerm):
       anchor_pos_w = self.robot.data.body_link_pos_w[
         static_env_ids, self.robot_anchor_body_index
       ]
-      self.target_position_w[static_env_ids] = (
-        rand_pos + anchor_pos_w + self._target_pos_offsets_t[static_motion_ids]
-      )
-
       anchor_quat_w = self.robot.data.body_link_quat_w[
         static_env_ids, self.robot_anchor_body_index
       ]
+      # rand_pos is expressed in anchor-body frame; rotate offset the same way.
+      offset_pos_w = quat_apply(
+        anchor_quat_w, self._target_pos_offsets_t[static_motion_ids]
+      )
+      self.target_position_w[static_env_ids] = (
+        quat_apply(anchor_quat_w, rand_pos) + anchor_pos_w + offset_pos_w
+      )
+
       offset_quats = self._target_offset_quats[static_motion_ids]
       self.target_orientation_w[static_env_ids] = quat_mul(
         quat_mul(anchor_quat_w, rand_quat), offset_quats
@@ -1063,42 +1117,21 @@ class MultiTargetMotionCommand(CommandTerm):
   # ------------------------------------------------------------------
 
   def get_source_pos_w(self) -> torch.Tensor:
-    """Return (num_envs, 3) world-frame positions of each env's active
-    source (body or site)."""
-    env_arange = torch.arange(self.num_envs, device=self.device)
-    source_idx = self._source_body_indices_t[self.which_motion]
-    is_site = self._source_is_site_t[self.which_motion]
-
-    pos = torch.zeros(self.num_envs, 3, device=self.device)
-    body_mask = ~is_site
-    if torch.any(body_mask):
-      pos[body_mask] = self.robot.data.body_link_pos_w[
-        env_arange[body_mask], source_idx[body_mask]
-      ]
-    if torch.any(is_site):
-      pos[is_site] = self.robot.data.site_pos_w[
-        env_arange[is_site], source_idx[is_site]
-      ]
+    """Return (num_envs, 3) world-frame positions of each env's active source."""
+    pos, _ = self._fetch_link_state(
+      torch.arange(self.num_envs, device=self.device),
+      self._source_body_indices_t[self.which_motion],
+      self._source_is_site_t[self.which_motion],
+    )
     return pos
 
   def get_source_quat_w(self) -> torch.Tensor:
-    """Return (num_envs, 4) world-frame quaternions of each env's active
-    source (body or site)."""
-    env_arange = torch.arange(self.num_envs, device=self.device)
-    source_idx = self._source_body_indices_t[self.which_motion]
-    is_site = self._source_is_site_t[self.which_motion]
-
-    quat = torch.zeros(self.num_envs, 4, device=self.device)
-    quat[:, 0] = 1.0  # identity quaternion default
-    body_mask = ~is_site
-    if torch.any(body_mask):
-      quat[body_mask] = self.robot.data.body_link_quat_w[
-        env_arange[body_mask], source_idx[body_mask]
-      ]
-    if torch.any(is_site):
-      quat[is_site] = self.robot.data.site_quat_w[
-        env_arange[is_site], source_idx[is_site]
-      ]
+    """Return (num_envs, 4) world-frame quaternions of each env's active source."""
+    _, quat = self._fetch_link_state(
+      torch.arange(self.num_envs, device=self.device),
+      self._source_body_indices_t[self.which_motion],
+      self._source_is_site_t[self.which_motion],
+    )
     return quat
 
   # ------------------------------------------------------------------
@@ -1329,6 +1362,7 @@ class MultiTargetMotionCommand(CommandTerm):
     self.robot.reset(env_ids=env_ids)
 
     self._sample_targets(env_ids)
+    self._freeze_target_b(env_ids)
 
   def _sample_next_motion(self, env_ids: torch.Tensor) -> None:
     """Pick a new random motion from the start without resetting robot."""
@@ -1337,6 +1371,7 @@ class MultiTargetMotionCommand(CommandTerm):
     self.which_motion[env_ids] = self._sample_motion_ids(len(env_ids))
     self.time_steps[env_ids] = 0
     self._sample_targets(env_ids)
+    self._freeze_target_b(env_ids)
 
   # ------------------------------------------------------------------
   # Step update
@@ -1350,14 +1385,12 @@ class MultiTargetMotionCommand(CommandTerm):
     if torch.any(envs_with_moving_target):
       env_indices = torch.where(envs_with_moving_target)[0]
       motion_ids = self.which_motion[env_indices]
-      target_body_idx = self._target_body_indices_t[motion_ids]
-      self.target_position_w[env_indices] = (
-        self.robot.data.body_link_pos_w[env_indices, target_body_idx]
-        + self._target_pos_offsets_t[motion_ids]
+      target_pos, target_quat = self._fetch_target_pos_quat(env_indices, motion_ids)
+      offset_pos_w = quat_apply(target_quat, self._target_pos_offsets_t[motion_ids])
+      self.target_position_w[env_indices] = target_pos + offset_pos_w
+      self.target_orientation_w[env_indices] = quat_mul(
+        target_quat, self._target_offset_quats[motion_ids]
       )
-      offset_quats = self._target_offset_quats[motion_ids]
-      body_quats = self.robot.data.body_link_quat_w[env_indices, target_body_idx]
-      self.target_orientation_w[env_indices] = quat_mul(body_quats, offset_quats)
 
     # Handle motion completion with between-motion pause.
     timestep_limits = self._time_step_totals[self.which_motion]
@@ -1422,6 +1455,39 @@ class MultiTargetMotionCommand(CommandTerm):
   # Visualization
   # ------------------------------------------------------------------
 
+  _VIZ_LINK_COLORS = ((1.0, 0.3, 0.3), (0.3, 1.0, 0.3), (0.3, 0.3, 1.0))
+
+  def _add_target_vis(self, visualizer: DebugVisualizer, batch: int) -> None:
+    """Draw target sphere and source/target link frames for one env."""
+    target_pos = self.target_position_w[batch].cpu().numpy()
+    visualizer.add_sphere(
+      center=target_pos,
+      radius=0.05,
+      color=(0.0, 1.0, 0.0, 0.7),
+      label=f"target_{batch}",
+    )
+    source_pos = self.get_source_pos_w()[batch].cpu().numpy()
+    source_rotm = (
+      matrix_from_quat(self.get_source_quat_w()[batch].unsqueeze(0))[0].cpu().numpy()
+    )
+    visualizer.add_frame(
+      position=source_pos,
+      rotation_matrix=source_rotm,
+      scale=0.12,
+      label=f"source_{batch}",
+      axis_colors=self._VIZ_LINK_COLORS,
+    )
+    target_rotm = (
+      matrix_from_quat(self.target_orientation_w[batch].unsqueeze(0))[0].cpu().numpy()
+    )
+    visualizer.add_frame(
+      position=target_pos,
+      rotation_matrix=target_rotm,
+      scale=0.12,
+      label=f"target_frame_{batch}",
+      axis_colors=self._VIZ_LINK_COLORS,
+    )
+
   def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
     env_indices = visualizer.get_env_indices(self.num_envs)
     if not env_indices:
@@ -1443,25 +1509,16 @@ class MultiTargetMotionCommand(CommandTerm):
         qpos[free_joint_q_adr[3:7]] = self.body_quat_w[batch, 0].cpu().numpy()
         qpos[joint_q_adr] = self.joint_pos[batch].cpu().numpy()
         visualizer.add_ghost_mesh(qpos, model=self._ghost_model, label=f"ghost_{batch}")
-
-        # Draw a sphere at the target position.
-        target_pos = self.target_position_w[batch].cpu().numpy()
-        visualizer.add_sphere(
-          center=target_pos,
-          radius=0.05,
-          color=(0.0, 1.0, 0.0, 0.7),
-          label=f"target_{batch}",
-        )
+        self._add_target_vis(visualizer, batch)
 
     elif self.cfg.viz.mode == "frames":
       for batch in env_indices:
         desired_body_pos = self.body_pos_w[batch].cpu().numpy()
-        desired_body_quat = self.body_quat_w[batch]
-        desired_body_rotm = matrix_from_quat(desired_body_quat).cpu().numpy()
-
+        desired_body_rotm = matrix_from_quat(self.body_quat_w[batch]).cpu().numpy()
         current_body_pos = self.robot_body_pos_w[batch].cpu().numpy()
-        current_body_quat = self.robot_body_quat_w[batch]
-        current_body_rotm = matrix_from_quat(current_body_quat).cpu().numpy()
+        current_body_rotm = (
+          matrix_from_quat(self.robot_body_quat_w[batch]).cpu().numpy()
+        )
 
         for i, body_name in enumerate(self.cfg.body_names):
           visualizer.add_frame(
@@ -1477,14 +1534,7 @@ class MultiTargetMotionCommand(CommandTerm):
             scale=0.12,
             label=f"current_{body_name}_{batch}",
           )
-
-        target_pos = self.target_position_w[batch].cpu().numpy()
-        visualizer.add_sphere(
-          center=target_pos,
-          radius=0.05,
-          color=(0.0, 1.0, 0.0, 0.7),
-          label=f"target_{batch}",
-        )
+        self._add_target_vis(visualizer, batch)
 
 
 @dataclass(kw_only=True)
@@ -1504,7 +1554,7 @@ class MultiTargetMotionCommandCfg(CommandTermCfg):
   adaptive_lambda: float = 0.8
   adaptive_uniform_ratio: float = 0.1
   adaptive_alpha: float = 0.001
-  sampling_mode: Literal["adaptive", "uniform", "start"] = "adaptive"
+  sampling_mode: Literal["adaptive", "uniform", "start"] = "start"
 
   motion_sampling_weights: list[float] = field(default_factory=list)
   """Per-motion sampling proportions (e.g. ``[0.33, 0.33, 0.34]``).

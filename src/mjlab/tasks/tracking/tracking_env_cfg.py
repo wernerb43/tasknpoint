@@ -12,10 +12,8 @@ Commit: f8e20c880d9c8ec7172a13d3a88a65e3a5a88448
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
-from mjlab.envs.mdp.curriculums import reward_curriculum
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
@@ -37,6 +35,106 @@ VELOCITY_RANGE = {
   "pitch": (-0.52, 0.52),
   "yaw": (-0.78, 0.78),
 }
+
+# ---------------------------------------------------------------------------
+# Per-motion target configuration
+# Each entry groups all parameters that belong to one motion
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass, field  # noqa: E402
+from typing import Literal  # noqa: E402
+
+
+@dataclass
+class _MotionSpec:
+  """All per-motion target parameters for MultiTargetMotionCommandCfg."""
+
+  # Sampling
+  sampling_weight: float = 1.0
+
+  # Source link (the robot link that must reach the target)
+  source_link: str = ""
+  source_type: Literal["body", "site"] = "site"
+
+  # Target link — None means static Gaussian target
+  target_link: str | None = None
+  target_type: Literal["body", "site"] = "body"
+
+  # Static target distribution (ignored when target_link is set)
+  target_pos_mean: dict[str, float] = field(
+    default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0}
+  )
+  target_pos_std: dict[str, float] = field(
+    default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0}
+  )
+  target_euler_range: dict[str, tuple[float, float]] = field(
+    default_factory=lambda: {
+      "roll": (0.0, 0.0),
+      "pitch": (0.0, 0.0),
+      "yaw": (0.0, 0.0),
+    }
+  )
+
+  # Offsets applied in the target link's local frame
+  target_pos_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+  target_euler_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+  # Phase window [0, 1] during which the target reward is active
+  phase_start: float = 0.0
+  phase_end: float = 1.0
+
+  # Per-motion weight for the target position/orientation rewards (0 = no target reward)
+  target_reward_weight: float = 1.0
+
+
+# fmt: off
+RIGHT_CATCH = _MotionSpec(
+  sampling_weight     = 0.5,
+  source_link         = "left_palm",  source_type  = "site",
+  target_link         = None,         target_type  = "body",
+  target_pos_mean     = {"x": 0.3, "y": -0.40, "z": 0.3},
+  target_pos_std      = {"x": 0.05, "y": 0.2, "z": 0.1},
+  target_pos_offset   = (0.0, 0.0, 0.0),
+  target_euler_offset = (0.0, 0.0, 1.5708),
+  phase_start         = 0.433,
+  phase_end           = 0.686,
+)
+
+LEFT_CATCH = _MotionSpec(
+  sampling_weight     = 0.5,
+  source_link         = "left_palm",  source_type  = "site",
+  target_link         = None,         target_type  = "body",
+  target_pos_mean     = {"x": 0.3, "y": 0.40, "z": 0.3},
+  target_pos_std      = {"x": 0.05, "y": 0.2, "z": 0.1},
+  target_pos_offset   = (0.0, 0.0, 0.0),
+  target_euler_offset = (0.0, 0.0, 1.5708),
+  phase_start         = 0.356,
+  phase_end           = 0.666,
+)
+
+THROW = _MotionSpec(
+  sampling_weight      = 0.0,
+  source_link          = "right_palm", source_type  = "site",
+  target_link          = None,         target_type  = "body",
+  phase_start          = 0.0,
+  phase_end            = 1.0,
+  target_reward_weight = 0.0,  # Motion tracking only — no target reward.
+)
+
+HANDOFF = _MotionSpec(
+  sampling_weight     = 0.0,
+  source_link         = "right_palm", source_type  = "site",
+  target_link         = "left_palm",  target_type  = "site",
+  # Moving target — pos_mean/std are unused; offset is in left_palm local frame.
+  target_pos_offset   = (0.0, -0.08, 0.0),
+  target_euler_offset = (0.0, 0.0, 0.0),
+  phase_start         = 0.42,
+  phase_end           = 0.55,
+)
+# fmt: on
+
+# Ordered list — index matches the motion file order passed at training time.
+MOTIONS: list[_MotionSpec] = [RIGHT_CATCH, LEFT_CATCH]
 
 
 def make_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
@@ -321,6 +419,10 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
   Extends the base tracking task with multi-motion support and per-motion
   target positions that the specified source links must reach during
   configurable phase windows.
+
+  Actor observation includes the target frozen at motion step 0 (for
+  deployment consistency).  Critic observation additionally receives the
+  live current target position.
   """
 
   ##
@@ -356,6 +458,9 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
   critic_terms = {
     "command": ObservationTermCfg(
       func=mdp.generated_commands, params={"command_name": "motion"}
+    ),
+    "current_target": ObservationTermCfg(
+      func=mdp.current_target_pos_ori_b, params={"command_name": "motion"}
     ),
     "motion_anchor_pos_b": ObservationTermCfg(
       func=mdp.motion_anchor_pos_b, params={"command_name": "motion"}
@@ -429,55 +534,18 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
       motion_files=[],
       anchor_body_name="",
       body_names=(),
-      # Right catch + Left catch + Throw + Handoff
-      # Equal weight to catch motions, half weight to throw (no target reward).
-      motion_sampling_weights=[0.25, 0.25, 0.50],
-      source_link_names=["left_palm", "left_palm", "right_palm"],
-      source_link_types=["site", "site", "site"],
-      target_link_names=[None, None, None],
-      target_link_types=["body", "body", "body"],
-      target_pos_means=[
-        {"x": 0.3, "y": -0.40, "z": 0.3},  # Right catch
-        {"x": 0.3, "y": 0.40, "z": 0.3},  # Left catch
-        {"x": 0.0, "y": 0.0, "z": 0.0},  # Throw (irrelevant: weight=0)
-        # {"x": 0.0, "y": 0.0, "z": 0.0},  # Handoff (uses moving target)
-      ],
-      target_pos_stds=[
-        {"x": 0.05, "y": 0.2, "z": 0.1},  # Right catch
-        {"x": 0.05, "y": 0.2, "z": 0.1},  # Left catch
-        {"x": 0.0, "y": 0.0, "z": 0.0},  # Throw
-        # {"x": 0.0, "y": 0.0, "z": 0.0},  # Handoff
-      ],
-      target_euler_angle_ranges=[
-        {"roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)},  # Right catch
-        {"roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)},  # Left catch
-        {"roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)},  # Throw
-        # {"roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)},  # Handoff
-      ],
-      target_pos_offsets=[
-        (0.0, 0.0, 0.0),  # Right catch
-        (0.0, 0.0, 0.0),  # Left catch
-        (0.0, 0.0, 0.0),  # Throw
-        # (0.0, -0.1, 0.0),  # Handoff (slight offset from left palm)
-      ],
-      target_euler_angle_offsets=[
-        (0.0, 0.0, 1.5708),  # Right catch
-        (0.0, 0.0, 1.5708),  # Left catch
-        (0.0, 0.0, 0.0),  # Throw
-        # (0.0, 3.1415, 0.0),  # Handoff (180° flip around y)
-      ],
-      target_phase_starts=[
-        0.433,  # Right catch
-        0.356,  # Left catch
-        0.0,  # Throw (irrelevant: weight=0)
-        # 0.45,  # Handoff
-      ],
-      target_phase_ends=[
-        0.686,  # Right catch
-        0.666,  # Left catch
-        1.0,  # Throw (irrelevant: weight=0)
-        # 0.55,  # Handoff
-      ],
+      motion_sampling_weights=[m.sampling_weight for m in MOTIONS],
+      source_link_names=[m.source_link for m in MOTIONS],
+      source_link_types=[m.source_type for m in MOTIONS],
+      target_link_names=[m.target_link for m in MOTIONS],
+      target_link_types=[m.target_type for m in MOTIONS],
+      target_pos_means=[m.target_pos_mean for m in MOTIONS],
+      target_pos_stds=[m.target_pos_std for m in MOTIONS],
+      target_euler_angle_ranges=[m.target_euler_range for m in MOTIONS],
+      target_pos_offsets=[m.target_pos_offset for m in MOTIONS],
+      target_euler_angle_offsets=[m.target_euler_offset for m in MOTIONS],
+      target_phase_starts=[m.phase_start for m in MOTIONS],
+      target_phase_ends=[m.phase_end for m in MOTIONS],
     )
   }
 
@@ -578,13 +646,8 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
       weight=5.0,
       params={
         "target_command_name": "motion",
-        "std": 0.3,
-        "per_motion_weights": [
-          1.0,
-          1.0,
-          0.0,
-          # 1.0,
-        ],  # Right catch, Left catch, Throw, Handoff
+        "std": 0.1,
+        "per_motion_weights": [m.target_reward_weight for m in MOTIONS],
       },
     ),
     "target_orientation_reward": RewardTermCfg(
@@ -594,12 +657,7 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
         "target_command_name": "motion",
         "std": 1.0,
         "axis": "y",
-        "per_motion_weights": [
-          1.0,
-          1.0,
-          0.0,
-          # 1.0,
-        ],  # Right catch, Left catch, Throw, Handoff
+        "per_motion_weights": [m.target_reward_weight for m in MOTIONS],
       },
     ),
   }
@@ -631,33 +689,6 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
       },
     ),
   }
-
-  ##
-  # Curriculum: scale down motion tracking rewards over time so the policy
-  # shifts focus toward hitting the target positions.
-  ##
-
-  # motion_reward_weights = {
-  #   "motion_global_root_pos": 0.5,
-  #   "motion_global_root_ori": 0.5,
-  #   "motion_body_pos": 1.0,
-  #   "motion_body_ori": 1.0,
-  #   "motion_body_lin_vel": 1.0,
-  #   "motion_body_ang_vel": 1.0,
-  # }
-  # curriculum: dict[str, CurriculumTermCfg] = {}
-  # for rname, w in motion_reward_weights.items():
-  #   curriculum[f"{rname}_weight"] = CurriculumTermCfg(
-  #     func=reward_curriculum,
-  #     params={
-  #       "reward_name": rname,
-  #       "stages": [
-  #         {"step": 0, "weight": w},
-  #         {"step": 5000 * 24, "weight": w * 0.5},
-  #         {"step": 10000 * 24, "weight": w * 0.25},
-  #       ],
-  #     },
-  #   )
 
   ##
   # Assemble and return (multi-target)

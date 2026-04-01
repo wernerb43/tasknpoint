@@ -7,7 +7,53 @@ import torch
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
-__all__ = ["RewardCurriculumStage", "reward_curriculum"]
+__all__ = ["RewardCurriculumStage", "reward_curriculum", "command_attribute_curriculum"]
+
+
+class _CommandAttributeStageOptional(TypedDict, total=False):
+  value: float
+
+
+class _CommandAttributeStage(_CommandAttributeStageOptional):
+  step: int
+
+
+def command_attribute_curriculum(
+  env: ManagerBasedRlEnv,
+  env_ids: torch.Tensor,
+  command_name: str,
+  attribute: str,
+  stages: list[_CommandAttributeStage],
+) -> dict[str, torch.Tensor]:
+  """Set a scalar attribute on a command term based on training steps.
+
+  Each stage specifies a ``step`` threshold and a ``value`` to assign to
+  ``attribute`` on the command term when ``env.common_step_counter`` reaches
+  that step.
+
+  Example — ramp target std scale from 0 → 1 over 20k steps::
+
+    CurriculumTermCfg(
+      func=mdp.command_attribute_curriculum,
+      params={
+        "command_name": "motion",
+        "attribute": "target_pos_std_scale",
+        "stages": [
+          {"step": 0,      "value": 0.0},
+          {"step": 10000,  "value": 0.5},
+          {"step": 20000,  "value": 1.0},
+        ],
+      },
+    )
+  """
+  del env_ids  # Unused.
+  cmd = env.command_manager.get_term(command_name)
+  current_value: float = getattr(cmd, attribute)
+  for stage in stages:
+    if env.common_step_counter >= stage["step"] and "value" in stage:
+      current_value = stage["value"]
+  setattr(cmd, attribute, current_value)
+  return {"value": torch.tensor(current_value)}
 
 
 class _RewardCurriculumStageOptional(TypedDict, total=False):
