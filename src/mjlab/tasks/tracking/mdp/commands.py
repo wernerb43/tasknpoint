@@ -760,9 +760,6 @@ class MultiTargetMotionCommand(CommandTerm):
     self.target_orientation_w[:, 0] = 1.0
 
     # Target tracking (body frame, for observation).
-    self.target_position_b = torch.zeros(self.num_envs, 3, device=self.device)
-    self.target_orientation_b = torch.zeros(self.num_envs, 4, device=self.device)
-    self.target_orientation_b[:, 0] = 1.0
 
     # Target phase windows per env.
     self.target_phase_start = torch.zeros(self.num_envs, device=self.device)
@@ -843,13 +840,18 @@ class MultiTargetMotionCommand(CommandTerm):
 
   @property
   def command(self) -> torch.Tensor:
-    """Joint pos/vel + target position/orientation frozen in anchor frame at step 0."""
+    """Joint pos/vel + target position/orientation in anchor frame."""
+    anchor_quat_inv = quat_inv(self.anchor_quat_w)
+    target_pos_b = quat_apply(
+      anchor_quat_inv, self.target_position_w - self.anchor_pos_w
+    )
+    target_ori_b = quat_mul(anchor_quat_inv, self.target_orientation_w)
     return torch.cat(
       [
         self.joint_pos,
         self.joint_vel,
-        self.target_position_b,
-        self.target_orientation_b,
+        target_pos_b,
+        target_ori_b,
       ],
       dim=1,
     )
@@ -1034,22 +1036,6 @@ class MultiTargetMotionCommand(CommandTerm):
   # ------------------------------------------------------------------
   # Target sampling
   # ------------------------------------------------------------------
-
-  def _freeze_target_b(self, env_ids: torch.Tensor) -> None:
-    """Convert world-frame target to anchor frame and freeze it.
-
-    Uses the motion-reference anchor at the current time step (always 0 with
-    ``sampling_mode="start"``) rather than the robot's actual body state, so
-    the result is stable immediately after a robot reset.
-    """
-    anchor_pos = self.anchor_pos_w[env_ids]
-    anchor_quat_inv = quat_inv(self.anchor_quat_w[env_ids])
-    self.target_position_b[env_ids] = quat_apply(
-      anchor_quat_inv, self.target_position_w[env_ids] - anchor_pos
-    )
-    self.target_orientation_b[env_ids] = quat_mul(
-      anchor_quat_inv, self.target_orientation_w[env_ids]
-    )
 
   def _sample_targets(self, env_ids: torch.Tensor) -> None:
     """Sample target positions/orientations for *env_ids*."""
@@ -1362,7 +1348,6 @@ class MultiTargetMotionCommand(CommandTerm):
     self.robot.reset(env_ids=env_ids)
 
     self._sample_targets(env_ids)
-    self._freeze_target_b(env_ids)
 
   def _sample_next_motion(self, env_ids: torch.Tensor) -> None:
     """Pick a new random motion from the start without resetting robot."""
@@ -1371,7 +1356,6 @@ class MultiTargetMotionCommand(CommandTerm):
     self.which_motion[env_ids] = self._sample_motion_ids(len(env_ids))
     self.time_steps[env_ids] = 0
     self._sample_targets(env_ids)
-    self._freeze_target_b(env_ids)
 
   # ------------------------------------------------------------------
   # Step update

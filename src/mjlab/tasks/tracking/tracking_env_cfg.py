@@ -89,7 +89,7 @@ class _MotionSpec:
 
 # fmt: off
 RIGHT_CATCH = _MotionSpec(
-  sampling_weight     = 0.5,
+  sampling_weight     = 1.0,
   source_link         = "left_palm",  source_type  = "site",
   target_link         = None,         target_type  = "body",
   target_pos_mean     = {"x": 0.3, "y": -0.40, "z": 0.3},
@@ -101,7 +101,7 @@ RIGHT_CATCH = _MotionSpec(
 )
 
 LEFT_CATCH = _MotionSpec(
-  sampling_weight     = 0.5,
+  sampling_weight     = 1.0,
   source_link         = "left_palm",  source_type  = "site",
   target_link         = None,         target_type  = "body",
   target_pos_mean     = {"x": 0.3, "y": 0.40, "z": 0.3},
@@ -113,7 +113,7 @@ LEFT_CATCH = _MotionSpec(
 )
 
 THROW = _MotionSpec(
-  sampling_weight      = 0.0,
+  sampling_weight      = 1.0,
   source_link          = "right_palm", source_type  = "site",
   target_link          = None,         target_type  = "body",
   phase_start          = 0.0,
@@ -122,7 +122,7 @@ THROW = _MotionSpec(
 )
 
 HANDOFF = _MotionSpec(
-  sampling_weight     = 0.0,
+  sampling_weight     = 1.0,
   source_link         = "right_palm", source_type  = "site",
   target_link         = "left_palm",  target_type  = "site",
   # Moving target — pos_mean/std are unused; offset is in left_palm local frame.
