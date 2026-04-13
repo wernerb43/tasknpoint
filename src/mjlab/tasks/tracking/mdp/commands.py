@@ -841,11 +841,11 @@ class MultiTargetMotionCommand(CommandTerm):
   @property
   def command(self) -> torch.Tensor:
     """Joint pos/vel + target position/orientation in anchor frame."""
-    anchor_quat_inv = quat_inv(self.anchor_quat_w)
+    robot_quat_inv = quat_inv(self.robot_anchor_quat_w)
     target_pos_b = quat_apply(
-      anchor_quat_inv, self.target_position_w - self.anchor_pos_w
+      robot_quat_inv, self.target_position_w - self.robot_anchor_pos_w
     )
-    target_ori_b = quat_mul(anchor_quat_inv, self.target_orientation_w)
+    target_ori_b = quat_mul(robot_quat_inv, self.target_orientation_w)
     return torch.cat(
       [
         self.joint_pos,

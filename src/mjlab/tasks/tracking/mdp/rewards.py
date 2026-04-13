@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dbm import error
 from typing import TYPE_CHECKING, cast
 
 import torch
@@ -156,6 +157,7 @@ def all_motions_target_position_error_exp(
   source_positions = command.get_source_pos_w()
 
   error = torch.sum(torch.square(command.target_position_w - source_positions), dim=-1)
+
   reward = torch.exp(-error / std**2)
 
   time_step_totals = torch.tensor(

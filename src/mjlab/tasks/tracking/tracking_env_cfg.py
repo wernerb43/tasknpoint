@@ -643,10 +643,10 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "target_position_reward": RewardTermCfg(
       func=mdp.all_motions_target_position_error_exp,
-      weight=5.0,
+      weight=10.0,
       params={
         "target_command_name": "motion",
-        "std": 0.1,
+        "std": 0.3,
         "per_motion_weights": [m.target_reward_weight for m in MOTIONS],
       },
     ),
