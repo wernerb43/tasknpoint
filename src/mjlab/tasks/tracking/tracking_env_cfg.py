@@ -131,10 +131,23 @@ HANDOFF = _MotionSpec(
   phase_start         = 0.42,
   phase_end           = 0.55,
 )
+
+BASEBALL_SWING = _MotionSpec(
+  sampling_weight     = 1.0,
+  source_link         = "right_palm", source_type  = "site",
+  target_link         = None,         target_type  = "body",
+  target_pos_mean     = {"x": 0.4, "y": 0.2, "z": 0.12},
+  target_pos_std      = {"x": 0.0, "y": 0.05, "z": 0.05},
+  target_pos_offset   = (0.0, 0.0, 0.0),
+  target_euler_offset = (0.0, 0.0, -1.5708),
+  phase_start         = 0.48,
+  phase_end           = 0.49,
+  target_reward_weight = 1.0,  # Motion tracking only — no target reward.
+)
 # fmt: on
 
 # Ordered list — index matches the motion file order passed at training time.
-MOTIONS: list[_MotionSpec] = [RIGHT_CATCH, LEFT_CATCH]
+MOTIONS: list[_MotionSpec] = [BASEBALL_SWING]
 
 
 def make_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
@@ -643,23 +656,23 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "target_position_reward": RewardTermCfg(
       func=mdp.all_motions_target_position_error_exp,
-      weight=10.0,
+      weight=100.0,  # 100 for fast motions like baseball swing, 10 for slow motions like catch
       params={
         "target_command_name": "motion",
         "std": 0.3,
         "per_motion_weights": [m.target_reward_weight for m in MOTIONS],
       },
     ),
-    "target_orientation_reward": RewardTermCfg(
-      func=mdp.all_motions_target_orientation_axis_alignment_error_exp,
-      weight=5.0,
-      params={
-        "target_command_name": "motion",
-        "std": 1.0,
-        "axis": "y",
-        "per_motion_weights": [m.target_reward_weight for m in MOTIONS],
-      },
-    ),
+    # "target_orientation_reward": RewardTermCfg(
+    #   func=mdp.all_motions_target_orientation_axis_alignment_error_exp,
+    #   weight=5.0,
+    #   params={
+    #     "target_command_name": "motion",
+    #     "std": 1.0,
+    #     "axis": "y",
+    #     "per_motion_weights": [m.target_reward_weight for m in MOTIONS],
+    #   },
+    # ),
   }
 
   ##

@@ -785,7 +785,7 @@ class MultiTargetMotionCommand(CommandTerm):
     self.kernel = self.kernel / self.kernel.sum()
 
     # Between-motion pause.
-    self.between_motion_pause_length = 0.3
+    self.between_motion_pause_length = self.cfg.between_motion_pause_length
     self.between_motion_pause_time = torch.zeros(self.num_envs, device=self.device)
     self.is_paused = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
     num_bodies = len(self.cfg.body_names)
@@ -1347,6 +1347,9 @@ class MultiTargetMotionCommand(CommandTerm):
     self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
     self.robot.reset(env_ids=env_ids)
 
+    # _sample_targets reads body/site world transforms; ensure they reflect
+    # the newly written reset state before sampling.
+    self._env.sim.forward()
     self._sample_targets(env_ids)
 
   def _sample_next_motion(self, env_ids: torch.Tensor) -> None:
@@ -1538,7 +1541,7 @@ class MultiTargetMotionCommandCfg(CommandTermCfg):
   adaptive_lambda: float = 0.8
   adaptive_uniform_ratio: float = 0.1
   adaptive_alpha: float = 0.001
-  sampling_mode: Literal["adaptive", "uniform", "start"] = "start"
+  sampling_mode: Literal["adaptive", "uniform", "start"] = "adaptive"
 
   motion_sampling_weights: list[float] = field(default_factory=list)
   """Per-motion sampling proportions (e.g. ``[0.33, 0.33, 0.34]``).
@@ -1583,6 +1586,12 @@ class MultiTargetMotionCommandCfg(CommandTermCfg):
 
   target_phase_ends: list[float] = field(default_factory=list)
   """Per-motion phase window end (0.0-1.0)."""
+
+  between_motion_pause_length: float = 0.3
+  """Seconds the reference is held frozen at the final motion pose before a
+  new motion is sampled. Increase (e.g. 1e9) to make the command hold the
+  pose indefinitely, which is useful when evaluating a low-level tracker in
+  an estimation/playback setting."""
 
   @dataclass
   class VizCfg:
