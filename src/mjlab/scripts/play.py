@@ -126,12 +126,7 @@ def run_play(task_id: str, cfg: PlayConfig):
 
       # Pre-populate motion files from the tracker's training run
       # so the downstream multi-target block can skip its own resolution.
-      if (
-        is_multi_target_task
-        and cfg.motion_file is None
-        and cfg.registry_name is None
-        and cfg.wandb_run_path is None
-      ):
+      if is_multi_target_task and cfg.motion_file is None and cfg.registry_name is None:
         import wandb
 
         api = wandb.Api()
