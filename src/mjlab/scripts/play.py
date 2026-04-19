@@ -10,8 +10,7 @@ import torch
 import tyro
 
 from mjlab.envs import ManagerBasedRlEnv
-from mjlab.rl import MjlabOnPolicyRunner, RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
-from mjlab.tasks.estimation.mdp import LowLevelTrackerActionCfg
+from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_runner_cls
 from mjlab.tasks.tracking.mdp import MotionCommandCfg, MultiTargetMotionCommandCfg
 from mjlab.utils.os import get_wandb_checkpoint_path
@@ -39,15 +38,6 @@ class PlayConfig:
   viewer: Literal["auto", "native", "viser"] = "auto"
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
-
-  tracker_wandb_run_path: str | None = None
-  """W&B run path for a pretrained low-level tracker (used by the estimation
-  task). Resolves both the tracker checkpoint and the motion artifacts
-  linked to the tracker's training run."""
-  tracker_wandb_checkpoint_name: str | None = None
-  """Optional checkpoint filename within the tracker's W&B run."""
-  tracker_checkpoint_file: str | None = None
-  """Local path to a tracker ``.pt`` checkpoint. Overrides W&B resolution."""
 
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
@@ -87,61 +77,6 @@ def run_play(task_id: str, cfg: PlayConfig):
     motion_cmd = env_cfg.commands["motion"]
     assert isinstance(motion_cmd, MultiTargetMotionCommandCfg)
     motion_cmd.sampling_mode = "uniform"
-
-  # If the environment uses a LowLevelTrackerAction, resolve the tracker
-  # checkpoint and (optionally) motion files from the tracker's W&B run.
-  tracker_action_cfg: LowLevelTrackerActionCfg | None = None
-  for act_cfg in env_cfg.actions.values():
-    if isinstance(act_cfg, LowLevelTrackerActionCfg):
-      tracker_action_cfg = act_cfg
-      break
-
-  if tracker_action_cfg is not None:
-    # Copy the tracker's RL actor config so the model architecture matches.
-    tracker_rl_cfg = load_rl_cfg("Mjlab-MultiTarget-Tracking-Flat-Unitree-G1")
-    assert isinstance(tracker_rl_cfg, RslRlOnPolicyRunnerCfg)
-    tracker_action_cfg.tracker_model_cfg = tracker_rl_cfg.actor
-
-    if cfg.tracker_checkpoint_file is not None:
-      ckpt = Path(cfg.tracker_checkpoint_file)
-      if not ckpt.exists():
-        raise FileNotFoundError(f"Tracker checkpoint not found: {ckpt}")
-      tracker_action_cfg.checkpoint_path = str(ckpt)
-      print(f"[INFO]: Tracker checkpoint (local): {ckpt.name}")
-    elif cfg.tracker_wandb_run_path is not None:
-      tracker_log_root = (
-        Path("logs") / "rsl_rl" / tracker_rl_cfg.experiment_name
-      ).resolve()
-      tracker_ckpt, was_cached = get_wandb_checkpoint_path(
-        tracker_log_root,
-        Path(cfg.tracker_wandb_run_path),
-        cfg.tracker_wandb_checkpoint_name,
-      )
-      tracker_action_cfg.checkpoint_path = str(tracker_ckpt)
-      cached_str = "cached" if was_cached else "downloaded"
-      print(
-        f"[INFO]: Tracker checkpoint: {tracker_ckpt.name} "
-        f"(run: {tracker_ckpt.parent.name}, {cached_str})"
-      )
-
-      # Pre-populate motion files from the tracker's training run
-      # so the downstream multi-target block can skip its own resolution.
-      if is_multi_target_task and cfg.motion_file is None and cfg.registry_name is None:
-        import wandb
-
-        api = wandb.Api()
-        tracker_run = api.run(str(cfg.tracker_wandb_run_path))
-        arts = [a for a in tracker_run.used_artifacts() if a.type == "motions"]
-        if not arts:
-          raise RuntimeError("No motion artifacts found in the tracker's W&B run.")
-        motion_cmd = env_cfg.commands["motion"]
-        assert isinstance(motion_cmd, MultiTargetMotionCommandCfg)
-        resolved_files: list[str] = []
-        for art in arts:
-          p = str(Path(art.download()) / "motion.npz")
-          resolved_files.append(p)
-          print(f"[INFO]: Tracker motion artifact: {art.name} -> {p}")
-        motion_cmd.motion_files = resolved_files
 
   if is_multi_target_task:
     motion_cmd = env_cfg.commands["motion"]

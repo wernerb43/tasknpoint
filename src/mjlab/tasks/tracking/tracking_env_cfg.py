@@ -22,7 +22,12 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.tracking import mdp
-from mjlab.tasks.tracking.mdp import MotionCommandCfg, MultiTargetMotionCommandCfg
+from mjlab.tasks.tracking.mdp import (
+  MotionCommandCfg,
+  MotionSubTargetCfg,
+  MotionTargetCfg,
+  MultiTargetMotionCommandCfg,
+)
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
@@ -46,21 +51,13 @@ from typing import Literal  # noqa: E402
 
 
 @dataclass
-class _MotionSpec:
-  """All per-motion target parameters for MultiTargetMotionCommandCfg."""
+class _SubTargetSpec:
+  """Config for one target within a motion."""
 
-  # Sampling
-  sampling_weight: float = 1.0
-
-  # Source link (the robot link that must reach the target)
   source_link: str = ""
   source_type: Literal["body", "site"] = "site"
-
-  # Target link — None means static Gaussian target
   target_link: str | None = None
   target_type: Literal["body", "site"] = "body"
-
-  # Static target distribution (ignored when target_link is set)
   target_pos_mean: dict[str, float] = field(
     default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0}
   )
@@ -68,86 +65,116 @@ class _MotionSpec:
     default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0}
   )
   target_euler_range: dict[str, tuple[float, float]] = field(
-    default_factory=lambda: {
-      "roll": (0.0, 0.0),
-      "pitch": (0.0, 0.0),
-      "yaw": (0.0, 0.0),
-    }
+    default_factory=lambda: {"roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)}
   )
-
-  # Offsets applied in the target link's local frame
   target_pos_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
   target_euler_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
-
-  # Phase window [0, 1] during which the target reward is active
   phase_start: float = 0.0
   phase_end: float = 1.0
+  pos_reward_weight: float = 1.0
+  ori_reward_weight: float = 1.0
+  ori_axis: Literal["x", "y", "z"] = "y"
 
-  # Per-motion weight for the target position/orientation rewards (0 = no target reward)
+
+@dataclass
+class _MotionSpec:
+  """Per-motion parameters: sampling weight and a list of sub-targets."""
+
+  sampling_weight: float = 1.0
   target_reward_weight: float = 1.0
+  sub_targets: list[_SubTargetSpec] = field(default_factory=list)
 
 
 # fmt: off
 RIGHT_CATCH = _MotionSpec(
-  sampling_weight     = 1.0,
-  source_link         = "left_palm",  source_type  = "site",
-  target_link         = None,         target_type  = "body",
-  target_pos_mean     = {"x": 0.3, "y": -0.40, "z": 0.3},
-  target_pos_std      = {"x": 0.05, "y": 0.2, "z": 0.1},
-  target_pos_offset   = (0.0, 0.0, 0.0),
-  target_euler_offset = (0.0, 0.0, 1.5708),
-  phase_start         = 0.433,
-  phase_end           = 0.686,
+  sampling_weight      = 1.0,
+  sub_targets          = [_SubTargetSpec(
+    source_link         = "left_palm",  source_type  = "site",
+    target_pos_mean     = {"x": 0.3, "y": -0.40, "z": 0.3},
+    target_pos_std      = {"x": 0.05, "y": 0.2, "z": 0.1},
+    target_euler_offset = (0.0, 0.0, 1.5708),
+    phase_start         = 0.433,
+    phase_end           = 0.686,
+  )],
 )
 
 LEFT_CATCH = _MotionSpec(
-  sampling_weight     = 1.0,
-  source_link         = "left_palm",  source_type  = "site",
-  target_link         = None,         target_type  = "body",
-  target_pos_mean     = {"x": 0.3, "y": 0.40, "z": 0.3},
-  target_pos_std      = {"x": 0.05, "y": 0.2, "z": 0.1},
-  target_pos_offset   = (0.0, 0.0, 0.0),
-  target_euler_offset = (0.0, 0.0, 1.5708),
-  phase_start         = 0.356,
-  phase_end           = 0.666,
+  sampling_weight      = 1.0,
+  sub_targets          = [_SubTargetSpec(
+    source_link         = "left_palm",  source_type  = "site",
+    target_pos_mean     = {"x": 0.3, "y": 0.40, "z": 0.3},
+    target_pos_std      = {"x": 0.05, "y": 0.2, "z": 0.1},
+    target_euler_offset = (0.0, 0.0, 1.5708),
+    phase_start         = 0.356,
+    phase_end           = 0.666,
+  )],
 )
 
 THROW = _MotionSpec(
   sampling_weight      = 1.0,
-  source_link          = "right_palm", source_type  = "site",
-  target_link          = None,         target_type  = "body",
-  phase_start          = 0.0,
-  phase_end            = 1.0,
   target_reward_weight = 0.0,  # Motion tracking only — no target reward.
+  sub_targets          = [_SubTargetSpec(
+    source_link  = "right_palm", source_type = "site",
+    phase_start  = 0.0,
+    phase_end    = 1.0,
+  )],
 )
 
 HANDOFF = _MotionSpec(
-  sampling_weight     = 1.0,
-  source_link         = "right_palm", source_type  = "site",
-  target_link         = "left_palm",  target_type  = "site",
-  # Moving target — pos_mean/std are unused; offset is in left_palm local frame.
-  target_pos_offset   = (0.0, -0.08, 0.0),
-  target_euler_offset = (0.0, 0.0, 0.0),
-  phase_start         = 0.42,
-  phase_end           = 0.55,
+  sampling_weight      = 1.0,
+  sub_targets          = [_SubTargetSpec(
+    source_link         = "right_palm", source_type  = "site",
+    target_link         = "left_palm",  target_type  = "site",
+    target_pos_offset   = (0.0, -0.08, 0.0),
+    phase_start         = 0.42,
+    phase_end           = 0.55,
+  )],
 )
 
 BASEBALL_SWING = _MotionSpec(
-  sampling_weight     = 1.0,
-  source_link         = "right_palm", source_type  = "site",
-  target_link         = None,         target_type  = "body",
-  target_pos_mean     = {"x": 0.4, "y": 0.2, "z": 0.12},
-  target_pos_std      = {"x": 0.0, "y": 0.05, "z": 0.05},
-  target_pos_offset   = (0.0, 0.0, 0.0),
-  target_euler_offset = (0.0, 0.0, -1.5708),
-  phase_start         = 0.48,
-  phase_end           = 0.49,
-  target_reward_weight = 1.0,  # Motion tracking only — no target reward.
+  sampling_weight      = 1.0,
+  sub_targets          = [_SubTargetSpec(
+    source_link         = "bat_contact", source_type  = "site",
+    target_pos_mean     = {"x": 0.65, "y": 0.2, "z": 0.12},
+    target_pos_std      = {"x": 0.05, "y": 0.05, "z": 0.05},
+    target_euler_offset = (0.0, 0.0, -1.5708),
+    phase_start         = 0.500,
+    phase_end           = 0.505,
+    pos_reward_weight=100.0,
+    ori_reward_weight=0.0
+  )],
 )
+
+TWO_HANDED_BASEBALL_SWING = _MotionSpec(
+  sampling_weight      = 1.0,
+  sub_targets          = [
+    _SubTargetSpec(
+    source_link         = "bat_contact", source_type  = "site",
+    target_pos_mean     = {"x": 0.775, "y": 0.0, "z": 0.12},
+    target_pos_std      = {"x": 0.05, "y": 0.05, "z": 0.05},
+    target_euler_offset = (0.0, 0.0, -1.5708),
+    phase_start         = 0.50,
+    phase_end           = 0.505,
+    pos_reward_weight=100.0,
+    ori_reward_weight=0.0
+
+  ), _SubTargetSpec(
+    source_link         = "right_palm",  source_type  = "site",
+    target_link         = "left_palm", target_type  = "site",
+    target_pos_offset   = (0.03, 0.0, 0.06),
+    phase_start         = 0.0,
+    phase_end           = 0.60,
+    pos_reward_weight=0.5,
+    ori_reward_weight=1.0,
+    ori_axis="x"
+
+  )],
+)
+
 # fmt: on
 
 # Ordered list — index matches the motion file order passed at training time.
-MOTIONS: list[_MotionSpec] = [BASEBALL_SWING]
+MOTIONS: list[_MotionSpec] = [TWO_HANDED_BASEBALL_SWING]
 
 
 def make_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
@@ -548,17 +575,30 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
       anchor_body_name="",
       body_names=(),
       motion_sampling_weights=[m.sampling_weight for m in MOTIONS],
-      source_link_names=[m.source_link for m in MOTIONS],
-      source_link_types=[m.source_type for m in MOTIONS],
-      target_link_names=[m.target_link for m in MOTIONS],
-      target_link_types=[m.target_type for m in MOTIONS],
-      target_pos_means=[m.target_pos_mean for m in MOTIONS],
-      target_pos_stds=[m.target_pos_std for m in MOTIONS],
-      target_euler_angle_ranges=[m.target_euler_range for m in MOTIONS],
-      target_pos_offsets=[m.target_pos_offset for m in MOTIONS],
-      target_euler_angle_offsets=[m.target_euler_offset for m in MOTIONS],
-      target_phase_starts=[m.phase_start for m in MOTIONS],
-      target_phase_ends=[m.phase_end for m in MOTIONS],
+      motion_target_cfgs=[
+        MotionTargetCfg(
+          sub_targets=[
+            MotionSubTargetCfg(
+              source_link=st.source_link,
+              source_type=st.source_type,
+              target_link=st.target_link,
+              target_type=st.target_type,
+              target_pos_mean=st.target_pos_mean,
+              target_pos_std=st.target_pos_std,
+              target_euler_angle_range=st.target_euler_range,
+              target_pos_offset=st.target_pos_offset,
+              target_euler_angle_offset=st.target_euler_offset,
+              target_phase_start=st.phase_start,
+              target_phase_end=st.phase_end,
+              pos_reward_weight=st.pos_reward_weight,
+              ori_reward_weight=st.ori_reward_weight,
+              ori_axis=st.ori_axis,
+            )
+            for st in m.sub_targets
+          ]
+        )
+        for m in MOTIONS
+      ],
     )
   }
 
@@ -656,23 +696,20 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "target_position_reward": RewardTermCfg(
       func=mdp.all_motions_target_position_error_exp,
-      weight=100.0,  # 100 for fast motions like baseball swing, 10 for slow motions like catch
+      weight=1.0,  # 100 for fast motions like baseball swing, 10 for slow motions like catch
       params={
         "target_command_name": "motion",
         "std": 0.3,
-        "per_motion_weights": [m.target_reward_weight for m in MOTIONS],
       },
     ),
-    # "target_orientation_reward": RewardTermCfg(
-    #   func=mdp.all_motions_target_orientation_axis_alignment_error_exp,
-    #   weight=5.0,
-    #   params={
-    #     "target_command_name": "motion",
-    #     "std": 1.0,
-    #     "axis": "y",
-    #     "per_motion_weights": [m.target_reward_weight for m in MOTIONS],
-    #   },
-    # ),
+    "target_orientation_reward": RewardTermCfg(
+      func=mdp.all_motions_target_orientation_axis_alignment_error_exp,
+      weight=1.0,
+      params={
+        "target_command_name": "motion",
+        "std": 1.0,
+      },
+    ),
   }
 
   ##

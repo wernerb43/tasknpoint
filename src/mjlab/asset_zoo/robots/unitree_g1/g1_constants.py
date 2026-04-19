@@ -19,7 +19,8 @@ from mjlab.utils.spec_config import CollisionCfg
 ##
 
 G1_XML: Path = (
-  MJLAB_SRC_PATH / "asset_zoo" / "robots" / "unitree_g1" / "xmls" / "g1.xml"
+  # MJLAB_SRC_PATH / "asset_zoo" / "robots" / "unitree_g1" / "xmls" / "g1.xml"
+  MJLAB_SRC_PATH / "asset_zoo" / "robots" / "unitree_g1" / "xmls" / "g1_batting.xml"
 )
 assert G1_XML.exists()
 

@@ -497,8 +497,8 @@ class MotionCommandCfg(CommandTermCfg):
 
 
 @dataclass
-class MotionTargetCfg:
-  """Per-motion target configuration."""
+class MotionSubTargetCfg:
+  """Configuration for a single target within a motion."""
 
   source_link: str
   source_type: Literal["body", "site"] = "body"
@@ -521,6 +521,16 @@ class MotionTargetCfg:
   target_euler_angle_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
   target_phase_start: float = 0.0
   target_phase_end: float = 1.0
+  pos_reward_weight: float = 1.0
+  ori_reward_weight: float = 1.0
+  ori_axis: Literal["x", "y", "z"] = "y"
+
+
+@dataclass
+class MotionTargetCfg:
+  """Per-motion target configuration — a list of sub-targets, each active during its own phase window."""
+
+  sub_targets: list[MotionSubTargetCfg] = field(default_factory=list)
 
 
 class MultiTargetMotionCommand(CommandTerm):
@@ -548,73 +558,44 @@ class MultiTargetMotionCommand(CommandTerm):
       device=self.device,
     )
 
-    def _get(lst: list, idx: int, default):  # noqa: ANN001, ANN202
-      return lst[idx] if idx < len(lst) else default
-
-    # Build per-motion configs and loaders.
+    # Build per-motion loaders; configs come directly from cfg.
     self.motion_loaders: list[MotionLoader] = []
-    self.motion_configs: list[MotionTargetCfg] = []
-    for i, motion_file in enumerate(self.cfg.motion_files):
+    for motion_file in self.cfg.motion_files:
       self.motion_loaders.append(
         MotionLoader(motion_file, self.body_indexes, device=self.device)
       )
+    self.motion_configs: list[MotionTargetCfg] = list(self.cfg.motion_target_cfgs)
 
-      source_types = self.cfg.source_link_types
-      target_types = self.cfg.target_link_types
-      self.motion_configs.append(
-        MotionTargetCfg(
-          source_link=self.cfg.source_link_names[i],
-          source_type=source_types[i] if source_types else "body",
-          target_link=_get(self.cfg.target_link_names, i, None),
-          target_type=target_types[i] if target_types else "body",
-          target_pos_mean=_get(
-            self.cfg.target_pos_means,
-            i,
-            {"x": 0.0, "y": 0.0, "z": 0.0},
-          ),
-          target_pos_std=_get(
-            self.cfg.target_pos_stds,
-            i,
-            {"x": 0.0, "y": 0.0, "z": 0.0},
-          ),
-          target_euler_angle_range=_get(
-            self.cfg.target_euler_angle_ranges,
-            i,
-            {"roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)},
-          ),
-          target_pos_offset=_get(self.cfg.target_pos_offsets, i, (0.0, 0.0, 0.0)),
-          target_euler_angle_offset=_get(
-            self.cfg.target_euler_angle_offsets, i, (0.0, 0.0, 0.0)
-          ),
-          target_phase_start=_get(self.cfg.target_phase_starts, i, 0.0),
-          target_phase_end=_get(self.cfg.target_phase_ends, i, 1.0),
-        )
-      )
-
-    # Source/target indices per motion (body or site depending on type).
-    self.source_body_indices: list[int] = []
-    self.source_is_site: list[bool] = []
-    self.target_body_indices: list[int | None] = []
-    self.target_is_site: list[bool] = []
+    # Source/target indices per motion per sub-target (body or site depending on type).
+    self.source_body_indices: list[list[int]] = []
+    self.source_is_site: list[list[bool]] = []
+    self.target_body_indices: list[list[int | None]] = []
+    self.target_is_site: list[list[bool]] = []
     for mc in self.motion_configs:
-      if mc.source_type == "site":
-        idx = self.robot.find_sites(mc.source_link, preserve_order=True)[0][0]
-        self.source_body_indices.append(idx)
-        self.source_is_site.append(True)
-      else:
-        self.source_body_indices.append(self.robot.body_names.index(mc.source_link))
-        self.source_is_site.append(False)
-      if mc.target_link is not None:
-        if mc.target_type == "site":
-          idx = self.robot.find_sites(mc.target_link, preserve_order=True)[0][0]
-          self.target_body_indices.append(idx)
-          self.target_is_site.append(True)
+      m_src, m_src_site, m_tgt, m_tgt_site = [], [], [], []
+      for st in mc.sub_targets:
+        if st.source_type == "site":
+          m_src.append(self.robot.find_sites(st.source_link, preserve_order=True)[0][0])
+          m_src_site.append(True)
         else:
-          self.target_body_indices.append(self.robot.body_names.index(mc.target_link))
-          self.target_is_site.append(False)
-      else:
-        self.target_body_indices.append(None)
-        self.target_is_site.append(False)
+          m_src.append(self.robot.body_names.index(st.source_link))
+          m_src_site.append(False)
+        if st.target_link is not None:
+          if st.target_type == "site":
+            m_tgt.append(
+              self.robot.find_sites(st.target_link, preserve_order=True)[0][0]
+            )
+            m_tgt_site.append(True)
+          else:
+            m_tgt.append(self.robot.body_names.index(st.target_link))
+            m_tgt_site.append(False)
+        else:
+          m_tgt.append(None)
+          m_tgt_site.append(False)
+      self.source_body_indices.append(m_src)
+      self.source_is_site.append(m_src_site)
+      self.target_body_indices.append(m_tgt)
+      self.target_is_site.append(m_tgt_site)
 
     # Pre-stack motion data for vectorized access.
     num_motions = len(self.motion_loaders)
@@ -651,82 +632,163 @@ class MultiTargetMotionCommand(CommandTerm):
       [m.time_step_total for m in self.motion_loaders], device=self.device
     )
 
-    # Pre-compute per-motion indices as tensors.
+    # Pre-compute per-motion, per-subtarget indices and parameters as tensors.
+    # Shape convention: (num_motions, max_subtargets, ...), padded with zeros/False.
+    max_subtargets = max(len(mc.sub_targets) for mc in self.motion_configs)
+    self.max_subtargets = max_subtargets
+
+    def _pad_to(vals: list, length: int, pad):  # noqa: ANN001, ANN202
+      return vals + [pad] * (length - len(vals))
+
     self._source_body_indices_t = torch.tensor(
-      self.source_body_indices, device=self.device, dtype=torch.long
-    )
-    self._target_body_indices_t = torch.tensor(
-      [idx if idx is not None else 0 for idx in self.target_body_indices],
+      [_pad_to(row, max_subtargets, 0) for row in self.source_body_indices],
       device=self.device,
       dtype=torch.long,
-    )
+    )  # (num_motions, max_subtargets)
+    self._target_body_indices_t = torch.tensor(
+      [
+        _pad_to([idx if idx is not None else 0 for idx in row], max_subtargets, 0)
+        for row in self.target_body_indices
+      ],
+      device=self.device,
+      dtype=torch.long,
+    )  # (num_motions, max_subtargets)
     self._has_target_link = torch.tensor(
-      [mc.target_link is not None for mc in self.motion_configs],
+      [
+        _pad_to([idx is not None for idx in row], max_subtargets, False)
+        for row in self.target_body_indices
+      ],
       device=self.device,
       dtype=torch.bool,
-    )
+    )  # (num_motions, max_subtargets)
     self._source_is_site_t = torch.tensor(
-      self.source_is_site, device=self.device, dtype=torch.bool
-    )
+      [_pad_to(row, max_subtargets, False) for row in self.source_is_site],
+      device=self.device,
+      dtype=torch.bool,
+    )  # (num_motions, max_subtargets)
     self._target_is_site_t = torch.tensor(
-      self.target_is_site, device=self.device, dtype=torch.bool
-    )
+      [_pad_to(row, max_subtargets, False) for row in self.target_is_site],
+      device=self.device,
+      dtype=torch.bool,
+    )  # (num_motions, max_subtargets)
 
     # Pre-compute target sampling parameters as tensors.
+    # (num_motions, max_subtargets, 3)
     self._target_pos_means_t = torch.stack(
       [
-        torch.tensor(
-          [mc.target_pos_mean.get(k, 0.0) for k in ["x", "y", "z"]],
-          device=self.device,
+        torch.stack(
+          [
+            torch.tensor(
+              [st.target_pos_mean.get(k, 0.0) for k in ["x", "y", "z"]],
+              device=self.device,
+            )
+            for st in _pad_to(mc.sub_targets, max_subtargets, mc.sub_targets[0])
+          ]
         )
         for mc in self.motion_configs
       ]
     )
     self._target_pos_stds_t = torch.stack(
       [
-        torch.tensor(
-          [mc.target_pos_std.get(k, 0.0) for k in ["x", "y", "z"]],
-          device=self.device,
+        torch.stack(
+          [
+            torch.tensor(
+              [st.target_pos_std.get(k, 0.0) for k in ["x", "y", "z"]],
+              device=self.device,
+            )
+            for st in _pad_to(mc.sub_targets, max_subtargets, mc.sub_targets[0])
+          ]
         )
         for mc in self.motion_configs
       ]
     )
     self._target_pos_offsets_t = torch.stack(
       [
-        torch.tensor(mc.target_pos_offset, device=self.device, dtype=torch.float32)
+        torch.stack(
+          [
+            torch.tensor(st.target_pos_offset, device=self.device, dtype=torch.float32)
+            for st in _pad_to(mc.sub_targets, max_subtargets, mc.sub_targets[0])
+          ]
+        )
         for mc in self.motion_configs
       ]
     )
     self._target_euler_ranges_t = torch.stack(
       [
-        torch.tensor(
+        torch.stack(
           [
-            mc.target_euler_angle_range.get(k, (0.0, 0.0))
-            for k in ["roll", "pitch", "yaw"]
-          ],
-          device=self.device,
+            torch.tensor(
+              [
+                st.target_euler_angle_range.get(k, (0.0, 0.0))
+                for k in ["roll", "pitch", "yaw"]
+              ],
+              device=self.device,
+            )
+            for st in _pad_to(mc.sub_targets, max_subtargets, mc.sub_targets[0])
+          ]
         )
         for mc in self.motion_configs
       ]
-    )  # (num_motions, 3, 2)
+    )  # (num_motions, max_subtargets, 3, 2)
     self._target_offset_quats = torch.stack(
       [
-        quat_from_euler_xyz(
-          torch.tensor([mc.target_euler_angle_offset[0]], device=self.device),
-          torch.tensor([mc.target_euler_angle_offset[1]], device=self.device),
-          torch.tensor([mc.target_euler_angle_offset[2]], device=self.device),
-        ).squeeze(0)
+        torch.stack(
+          [
+            quat_from_euler_xyz(
+              torch.tensor([st.target_euler_angle_offset[0]], device=self.device),
+              torch.tensor([st.target_euler_angle_offset[1]], device=self.device),
+              torch.tensor([st.target_euler_angle_offset[2]], device=self.device),
+            ).squeeze(0)
+            for st in _pad_to(mc.sub_targets, max_subtargets, mc.sub_targets[0])
+          ]
+        )
         for mc in self.motion_configs
       ]
-    )
+    )  # (num_motions, max_subtargets, 4)
     self._target_phase_starts_t = torch.tensor(
-      [mc.target_phase_start for mc in self.motion_configs],
+      [
+        _pad_to([st.target_phase_start for st in mc.sub_targets], max_subtargets, 0.0)
+        for mc in self.motion_configs
+      ],
       device=self.device,
-    )
+    )  # (num_motions, max_subtargets)
     self._target_phase_ends_t = torch.tensor(
-      [mc.target_phase_end for mc in self.motion_configs],
+      [
+        _pad_to([st.target_phase_end for st in mc.sub_targets], max_subtargets, 0.0)
+        for mc in self.motion_configs
+      ],
       device=self.device,
-    )
+    )  # (num_motions, max_subtargets)
+    self._target_pos_reward_weights_t = torch.tensor(
+      [
+        _pad_to([st.pos_reward_weight for st in mc.sub_targets], max_subtargets, 0.0)
+        for mc in self.motion_configs
+      ],
+      device=self.device,
+    )  # (num_motions, max_subtargets)
+    self._target_ori_reward_weights_t = torch.tensor(
+      [
+        _pad_to([st.ori_reward_weight for st in mc.sub_targets], max_subtargets, 0.0)
+        for mc in self.motion_configs
+      ],
+      device=self.device,
+    )  # (num_motions, max_subtargets)
+    _axis_vec_map = {
+      "x": [1.0, 0.0, 0.0],
+      "y": [0.0, 1.0, 0.0],
+      "z": [0.0, 0.0, 1.0],
+    }
+    self._target_ori_axes_t = torch.tensor(
+      [
+        _pad_to(
+          [_axis_vec_map[st.ori_axis] for st in mc.sub_targets],
+          max_subtargets,
+          [0.0, 0.0, 0.0],
+        )
+        for mc in self.motion_configs
+      ],
+      device=self.device,
+    )  # (num_motions, max_subtargets, 3)
 
     # Motion sampling weights — normalised to sum to 1.
     num_motions = len(self.motion_loaders)
@@ -754,16 +816,14 @@ class MultiTargetMotionCommand(CommandTerm):
     )
     self.body_quat_relative_w[:, :, 0] = 1.0
 
-    # Target tracking (world frame).
-    self.target_position_w = torch.zeros(self.num_envs, 3, device=self.device)
-    self.target_orientation_w = torch.zeros(self.num_envs, 4, device=self.device)
-    self.target_orientation_w[:, 0] = 1.0
-
-    # Target tracking (body frame, for observation).
-
-    # Target phase windows per env.
-    self.target_phase_start = torch.zeros(self.num_envs, device=self.device)
-    self.target_phase_end = torch.zeros(self.num_envs, device=self.device)
+    # Target tracking (world frame) — (num_envs, max_subtargets, 3/4).
+    self.target_position_w = torch.zeros(
+      self.num_envs, max_subtargets, 3, device=self.device
+    )
+    self.target_orientation_w = torch.zeros(
+      self.num_envs, max_subtargets, 4, device=self.device
+    )
+    self.target_orientation_w[:, :, 0] = 1.0
 
     # Adaptive sampling per motion.
     self.bin_counts = [
@@ -840,20 +900,20 @@ class MultiTargetMotionCommand(CommandTerm):
 
   @property
   def command(self) -> torch.Tensor:
-    """Joint pos/vel + target position/orientation in anchor frame."""
-    robot_quat_inv = quat_inv(self.robot_anchor_quat_w)
+    """Joint pos/vel + all sub-target positions/orientations in anchor frame, flattened."""
+    robot_quat_inv = quat_inv(self.robot_anchor_quat_w)  # (E, 4)
+    # target_position_w: (E, S, 3), target_orientation_w: (E, S, 4)
+    quat_inv_exp = robot_quat_inv[:, None, :].expand(-1, self.max_subtargets, -1)
     target_pos_b = quat_apply(
-      robot_quat_inv, self.target_position_w - self.robot_anchor_pos_w
-    )
-    target_ori_b = quat_mul(robot_quat_inv, self.target_orientation_w)
+      quat_inv_exp.reshape(-1, 4),
+      (self.target_position_w - self.robot_anchor_pos_w[:, None, :]).reshape(-1, 3),
+    ).reshape(self.num_envs, self.max_subtargets * 3)
+    target_ori_b = quat_mul(
+      quat_inv_exp.reshape(-1, 4),
+      self.target_orientation_w.reshape(-1, 4),
+    ).reshape(self.num_envs, self.max_subtargets * 4)
     return torch.cat(
-      [
-        self.joint_pos,
-        self.joint_vel,
-        target_pos_b,
-        target_ori_b,
-      ],
-      dim=1,
+      [self.joint_pos, self.joint_vel, target_pos_b, target_ori_b], dim=1
     )
 
   # ------------------------------------------------------------------
@@ -1023,11 +1083,38 @@ class MultiTargetMotionCommand(CommandTerm):
       quat[is_site_t] = self.robot.data.site_quat_w[si, indices_t[is_site_t]]
     return pos, quat
 
+  def _fetch_link_state_batched(
+    self,
+    env_ids: torch.Tensor,
+    indices_t: torch.Tensor,
+    is_site_t: torch.Tensor,
+  ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return ``(pos, quat)`` of shape ``(E, S, 3/4)`` for *env_ids* × sub-targets.
+
+    *indices_t* and *is_site_t* are ``(E, S)`` body/site indices and flags.
+    Fetches all sub-targets in one vectorized gather, blending body and site
+    data via ``torch.where``.
+    """
+    E, S = indices_t.shape
+    env_ids_exp = env_ids[:, None].expand(E, S)  # (E, S)
+    # Clamp to valid range for each array so out-of-domain indices don't OOB.
+    # Values at clamped-invalid positions are masked out by torch.where below.
+    body_idx = indices_t.clamp(max=self.robot.data.body_link_pos_w.shape[1] - 1)
+    site_idx = indices_t.clamp(max=self.robot.data.site_pos_w.shape[1] - 1)
+    body_pos = self.robot.data.body_link_pos_w[env_ids_exp, body_idx]  # (E, S, 3)
+    body_quat = self.robot.data.body_link_quat_w[env_ids_exp, body_idx]  # (E, S, 4)
+    site_pos = self.robot.data.site_pos_w[env_ids_exp, site_idx]  # (E, S, 3)
+    site_quat = self.robot.data.site_quat_w[env_ids_exp, site_idx]  # (E, S, 4)
+    is_site = is_site_t.unsqueeze(-1)  # (E, S, 1)
+    pos = torch.where(is_site, site_pos, body_pos)
+    quat = torch.where(is_site.expand(-1, -1, 4), site_quat, body_quat)
+    return pos, quat
+
   def _fetch_target_pos_quat(
     self, env_ids: torch.Tensor, motion_ids: torch.Tensor
   ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Read world-frame position and quaternion of the target link for each env."""
-    return self._fetch_link_state(
+    """Return world-frame ``(pos, quat)`` of shape ``(E, S, 3/4)`` for each target link."""
+    return self._fetch_link_state_batched(
       env_ids,
       self._target_body_indices_t[motion_ids],
       self._target_is_site_t[motion_ids],
@@ -1038,73 +1125,73 @@ class MultiTargetMotionCommand(CommandTerm):
   # ------------------------------------------------------------------
 
   def _sample_targets(self, env_ids: torch.Tensor) -> None:
-    """Sample target positions/orientations for *env_ids*."""
+    """Sample target positions/orientations for *env_ids* across all sub-targets."""
     motion_ids = self.which_motion[env_ids]
 
-    # Moving targets (tracking another body link or site).
-    has_moving = self._has_target_link[motion_ids]
-    if torch.any(has_moving):
-      moving_env_ids = env_ids[has_moving]
-      moving_motion_ids = motion_ids[has_moving]
-      target_pos, target_quat = self._fetch_target_pos_quat(
-        moving_env_ids, moving_motion_ids
-      )
-      offset_pos_w = quat_apply(
-        target_quat, self._target_pos_offsets_t[moving_motion_ids]
-      )
-      self.target_position_w[moving_env_ids] = target_pos + offset_pos_w
-      self.target_orientation_w[moving_env_ids] = quat_mul(
-        target_quat, self._target_offset_quats[moving_motion_ids]
-      )
+    anchor_pos_w = self.robot.data.body_link_pos_w[
+      env_ids, self.robot_anchor_body_index
+    ]
+    anchor_quat_w = self.robot.data.body_link_quat_w[
+      env_ids, self.robot_anchor_body_index
+    ]
 
-    # Static targets (sampled from Gaussian).
-    has_static = ~has_moving
-    if torch.any(has_static):
-      static_env_ids = env_ids[has_static]
-      static_motion_ids = motion_ids[has_static]
-      ns = len(static_env_ids)
+    for s in range(self.max_subtargets):
+      has_moving = self._has_target_link[motion_ids, s]  # (E,)
 
-      pos_mean = self._target_pos_means_t[static_motion_ids]
-      pos_std = self._target_pos_stds_t[static_motion_ids] * self.target_pos_std_scale
-      rand_pos = pos_mean + torch.randn(ns, 3, device=self.device) * pos_std
+      # Moving targets — fetch only when needed, using the non-batched helper.
+      if torch.any(has_moving):
+        mv_eids = env_ids[has_moving]
+        mv_mids = motion_ids[has_moving]
+        tgt_pos, tgt_quat = self._fetch_link_state(
+          mv_eids,
+          self._target_body_indices_t[mv_mids, s],
+          self._target_is_site_t[mv_mids, s],
+        )
+        offset_pos_w = quat_apply(tgt_quat, self._target_pos_offsets_t[mv_mids, s])
+        self.target_position_w[mv_eids, s] = tgt_pos + offset_pos_w
+        self.target_orientation_w[mv_eids, s] = quat_mul(
+          tgt_quat, self._target_offset_quats[mv_mids, s]
+        )
 
-      euler_ranges = self._target_euler_ranges_t[static_motion_ids]
-      rand_euler = euler_ranges[:, :, 0] + torch.rand(ns, 3, device=self.device) * (
-        euler_ranges[:, :, 1] - euler_ranges[:, :, 0]
-      )
-      rand_quat = quat_from_euler_xyz(
-        rand_euler[:, 0], rand_euler[:, 1], rand_euler[:, 2]
-      )
+      # Static targets — sampled from Gaussian in anchor frame.
+      has_static = ~has_moving
+      if torch.any(has_static):
+        st_idx = torch.where(has_static)[0]
+        st_eids = env_ids[has_static]
+        st_mids = motion_ids[has_static]
+        ns = int(has_static.sum().item())
 
-      anchor_pos_w = self.robot.data.body_link_pos_w[
-        static_env_ids, self.robot_anchor_body_index
-      ]
-      anchor_quat_w = self.robot.data.body_link_quat_w[
-        static_env_ids, self.robot_anchor_body_index
-      ]
-      # rand_pos is expressed in anchor-body frame; rotate offset the same way.
-      offset_pos_w = quat_apply(
-        anchor_quat_w, self._target_pos_offsets_t[static_motion_ids]
-      )
-      self.target_position_w[static_env_ids] = (
-        quat_apply(anchor_quat_w, rand_pos) + anchor_pos_w + offset_pos_w
-      )
+        pos_mean = self._target_pos_means_t[st_mids, s]
+        pos_std = self._target_pos_stds_t[st_mids, s] * self.target_pos_std_scale
+        rand_pos = pos_mean + torch.randn(ns, 3, device=self.device) * pos_std
 
-      offset_quats = self._target_offset_quats[static_motion_ids]
-      self.target_orientation_w[static_env_ids] = quat_mul(
-        quat_mul(anchor_quat_w, rand_quat), offset_quats
-      )
+        euler_ranges = self._target_euler_ranges_t[st_mids, s]
+        rand_euler = euler_ranges[:, :, 0] + torch.rand(ns, 3, device=self.device) * (
+          euler_ranges[:, :, 1] - euler_ranges[:, :, 0]
+        )
+        rand_quat = quat_from_euler_xyz(
+          rand_euler[:, 0], rand_euler[:, 1], rand_euler[:, 2]
+        )
 
-    self.target_phase_start[env_ids] = self._target_phase_starts_t[motion_ids]
-    self.target_phase_end[env_ids] = self._target_phase_ends_t[motion_ids]
+        st_anchor_pos = anchor_pos_w[st_idx]
+        st_anchor_quat = anchor_quat_w[st_idx]
+        offset_pos_w = quat_apply(
+          st_anchor_quat, self._target_pos_offsets_t[st_mids, s]
+        )
+        self.target_position_w[st_eids, s] = (
+          quat_apply(st_anchor_quat, rand_pos) + st_anchor_pos + offset_pos_w
+        )
+        self.target_orientation_w[st_eids, s] = quat_mul(
+          quat_mul(st_anchor_quat, rand_quat), self._target_offset_quats[st_mids, s]
+        )
 
   # ------------------------------------------------------------------
   # Source position / orientation helpers (body or site)
   # ------------------------------------------------------------------
 
   def get_source_pos_w(self) -> torch.Tensor:
-    """Return (num_envs, 3) world-frame positions of each env's active source."""
-    pos, _ = self._fetch_link_state(
+    """Return ``(num_envs, max_subtargets, 3)`` world-frame source positions."""
+    pos, _ = self._fetch_link_state_batched(
       torch.arange(self.num_envs, device=self.device),
       self._source_body_indices_t[self.which_motion],
       self._source_is_site_t[self.which_motion],
@@ -1112,8 +1199,8 @@ class MultiTargetMotionCommand(CommandTerm):
     return pos
 
   def get_source_quat_w(self) -> torch.Tensor:
-    """Return (num_envs, 4) world-frame quaternions of each env's active source."""
-    _, quat = self._fetch_link_state(
+    """Return ``(num_envs, max_subtargets, 4)`` world-frame source quaternions."""
+    _, quat = self._fetch_link_state_batched(
       torch.arange(self.num_envs, device=self.device),
       self._source_body_indices_t[self.which_motion],
       self._source_is_site_t[self.which_motion],
@@ -1161,7 +1248,7 @@ class MultiTargetMotionCommand(CommandTerm):
 
     self.metrics["error_target_pos"] = torch.norm(
       self.get_source_pos_w() - self.target_position_w, dim=-1
-    )
+    ).mean(dim=-1)
 
   # ------------------------------------------------------------------
   # Adaptive sampling
@@ -1367,17 +1454,29 @@ class MultiTargetMotionCommand(CommandTerm):
   def _update_command(self) -> None:
     self.time_steps += 1
 
-    # Update moving targets each step.
-    envs_with_moving_target = self._has_target_link[self.which_motion]
-    if torch.any(envs_with_moving_target):
-      env_indices = torch.where(envs_with_moving_target)[0]
-      motion_ids = self.which_motion[env_indices]
-      target_pos, target_quat = self._fetch_target_pos_quat(env_indices, motion_ids)
-      offset_pos_w = quat_apply(target_quat, self._target_pos_offsets_t[motion_ids])
-      self.target_position_w[env_indices] = target_pos + offset_pos_w
-      self.target_orientation_w[env_indices] = quat_mul(
-        target_quat, self._target_offset_quats[motion_ids]
-      )
+    # Update moving targets each step — fully vectorized over (E, S).
+    has_moving = self._has_target_link[self.which_motion]  # (E, S)
+    if torch.any(has_moving):
+      E = self.num_envs
+      S = self.max_subtargets
+      motion_ids = self.which_motion  # (E,)
+      all_env_ids = torch.arange(E, device=self.device)
+      tgt_pos_all, tgt_quat_all = self._fetch_link_state_batched(
+        all_env_ids,
+        self._target_body_indices_t[motion_ids],  # (E, S)
+        self._target_is_site_t[motion_ids],  # (E, S)
+      )  # (E, S, 3/4)
+      offset_pos_w = quat_apply(
+        tgt_quat_all.reshape(-1, 4),
+        self._target_pos_offsets_t[motion_ids].reshape(-1, 3),
+      ).reshape(E, S, 3)
+      new_pos = tgt_pos_all + offset_pos_w
+      new_quat = quat_mul(
+        tgt_quat_all.reshape(-1, 4),
+        self._target_offset_quats[motion_ids].reshape(-1, 4),
+      ).reshape(E, S, 4)
+      self.target_position_w[has_moving] = new_pos[has_moving]
+      self.target_orientation_w[has_moving] = new_quat[has_moving]
 
     # Handle motion completion with between-motion pause.
     timestep_limits = self._time_step_totals[self.which_motion]
@@ -1445,35 +1544,37 @@ class MultiTargetMotionCommand(CommandTerm):
   _VIZ_LINK_COLORS = ((1.0, 0.3, 0.3), (0.3, 1.0, 0.3), (0.3, 0.3, 1.0))
 
   def _add_target_vis(self, visualizer: DebugVisualizer, batch: int) -> None:
-    """Draw target sphere and source/target link frames for one env."""
-    target_pos = self.target_position_w[batch].cpu().numpy()
-    visualizer.add_sphere(
-      center=target_pos,
-      radius=0.05,
-      color=(0.0, 1.0, 0.0, 0.7),
-      label=f"target_{batch}",
-    )
-    source_pos = self.get_source_pos_w()[batch].cpu().numpy()
-    source_rotm = (
-      matrix_from_quat(self.get_source_quat_w()[batch].unsqueeze(0))[0].cpu().numpy()
-    )
-    visualizer.add_frame(
-      position=source_pos,
-      rotation_matrix=source_rotm,
-      scale=0.12,
-      label=f"source_{batch}",
-      axis_colors=self._VIZ_LINK_COLORS,
-    )
-    target_rotm = (
-      matrix_from_quat(self.target_orientation_w[batch].unsqueeze(0))[0].cpu().numpy()
-    )
-    visualizer.add_frame(
-      position=target_pos,
-      rotation_matrix=target_rotm,
-      scale=0.12,
-      label=f"target_frame_{batch}",
-      axis_colors=self._VIZ_LINK_COLORS,
-    )
+    """Draw target spheres and source/target link frames for one env (all sub-targets)."""
+    source_pos_all = self.get_source_pos_w()[batch].cpu().numpy()  # (S, 3)
+    source_quat_all = self.get_source_quat_w()[batch]  # (S, 4)
+    for s in range(self.max_subtargets):
+      target_pos = self.target_position_w[batch, s].cpu().numpy()
+      visualizer.add_sphere(
+        center=target_pos,
+        radius=0.05,
+        color=(0.0, 1.0, 0.0, 0.7),
+        label=f"target_{batch}_{s}",
+      )
+      source_rotm = matrix_from_quat(source_quat_all[s].unsqueeze(0))[0].cpu().numpy()
+      visualizer.add_frame(
+        position=source_pos_all[s],
+        rotation_matrix=source_rotm,
+        scale=0.12,
+        label=f"source_{batch}_{s}",
+        axis_colors=self._VIZ_LINK_COLORS,
+      )
+      target_rotm = (
+        matrix_from_quat(self.target_orientation_w[batch, s].unsqueeze(0))[0]
+        .cpu()
+        .numpy()
+      )
+      visualizer.add_frame(
+        position=target_pos,
+        rotation_matrix=target_rotm,
+        scale=0.12,
+        label=f"target_frame_{batch}_{s}",
+        axis_colors=self._VIZ_LINK_COLORS,
+      )
 
   def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
     env_indices = visualizer.get_env_indices(self.num_envs)
@@ -1544,48 +1645,10 @@ class MultiTargetMotionCommandCfg(CommandTermCfg):
   sampling_mode: Literal["adaptive", "uniform", "start"] = "adaptive"
 
   motion_sampling_weights: list[float] = field(default_factory=list)
-  """Per-motion sampling proportions (e.g. ``[0.33, 0.33, 0.34]``).
-  Must sum to approximately 1.0 and have one entry per motion.
-  Defaults to uniform sampling when empty."""
+  """Per-motion sampling proportions. Defaults to uniform when empty."""
 
-  source_link_names: list[str] = field(default_factory=list)
-  """Per-motion source link names (the link that should reach the target)."""
-
-  source_link_types: list[Literal["body", "site"]] | None = None
-  """Per-motion source link types. Defaults to ``"body"`` for all motions."""
-
-  target_link_names: list[str | None] = field(default_factory=list)
-  """Per-motion target link names. ``None`` means static target (Gaussian
-  sampled)."""
-
-  target_link_types: list[Literal["body", "site"]] | None = None
-  """Per-motion target link types. Defaults to ``"body"`` for all motions."""
-
-  target_pos_means: list[dict[str, float]] = field(default_factory=list)
-  """Per-motion nominal target positions ``{"x": ..., "y": ..., "z": ...}``."""
-
-  target_pos_stds: list[dict[str, float]] = field(default_factory=list)
-  """Per-motion target position standard deviations (max, scaled by
-  curriculum)."""
-
-  target_euler_angle_ranges: list[dict[str, tuple[float, float]]] = field(
-    default_factory=list
-  )
-  """Per-motion target orientation euler-angle ranges."""
-
-  target_pos_offsets: list[tuple[float, float, float]] = field(default_factory=list)
-  """Per-motion position offsets applied after sampling."""
-
-  target_euler_angle_offsets: list[tuple[float, float, float]] = field(
-    default_factory=list
-  )
-  """Per-motion orientation offsets (euler angles) applied after sampling."""
-
-  target_phase_starts: list[float] = field(default_factory=list)
-  """Per-motion phase window start (0.0-1.0)."""
-
-  target_phase_ends: list[float] = field(default_factory=list)
-  """Per-motion phase window end (0.0-1.0)."""
+  motion_target_cfgs: list[MotionTargetCfg] = field(default_factory=list)
+  """Per-motion target configurations, each containing one or more sub-targets."""
 
   between_motion_pause_length: float = 0.3
   """Seconds the reference is held frozen at the final motion pose before a

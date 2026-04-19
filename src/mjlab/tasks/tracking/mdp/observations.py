@@ -73,16 +73,19 @@ def robot_body_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
 
 
 def current_target_pos_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  """Return the live target position and orientation in the robot anchor frame.
+  """Return all sub-target positions and orientations in the robot anchor frame.
 
-  Unlike the actor observation (frozen at step 0), this recomputes every step
-  so the critic always sees the true current target location.
-  Returns a (num_envs, 7) tensor: 3 position + 4 quaternion.
+  Returns a ``(num_envs, max_subtargets * 7)`` tensor: 3 pos + 4 quat per sub-target.
   """
   command = cast(MultiTargetMotionCommand, env.command_manager.get_term(command_name))
-  anchor_quat_inv = quat_inv(command.robot_anchor_quat_w)
+  anchor_quat_inv = quat_inv(command.robot_anchor_quat_w)  # (E, 4)
+  S = command.max_subtargets
+  quat_inv_exp = anchor_quat_inv[:, None, :].expand(-1, S, -1).reshape(-1, 4)
   pos_b = quat_apply(
-    anchor_quat_inv, command.target_position_w - command.robot_anchor_pos_w
+    quat_inv_exp,
+    (command.target_position_w - command.robot_anchor_pos_w[:, None, :]).reshape(-1, 3),
+  ).reshape(command.num_envs, S * 3)
+  ori_b = quat_mul(quat_inv_exp, command.target_orientation_w.reshape(-1, 4)).reshape(
+    command.num_envs, S * 4
   )
-  ori_b = quat_mul(anchor_quat_inv, command.target_orientation_w)
   return torch.cat([pos_b, ori_b], dim=-1)

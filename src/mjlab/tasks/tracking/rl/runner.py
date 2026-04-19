@@ -195,10 +195,20 @@ class MotionTrackingOnPolicyRunner(MjlabOnPolicyRunner):
             "anchor_body_name": cmd.cfg.anchor_body_name,
             "body_names": list(cmd.cfg.body_names),
             "num_motions": len(cmd.motion_loaders),
-            "source_link_names": list(cmd.cfg.source_link_names),
-            "source_link_types": [mc.source_type for mc in cmd.motion_configs],
-            "target_phase_starts": [mc.target_phase_start for mc in cmd.motion_configs],
-            "target_phase_ends": [mc.target_phase_end for mc in cmd.motion_configs],
+            "source_link_names": [
+              [st.source_link for st in mc.sub_targets] for mc in cmd.motion_configs
+            ],
+            "source_link_types": [
+              [st.source_type for st in mc.sub_targets] for mc in cmd.motion_configs
+            ],
+            "target_phase_starts": [
+              [st.target_phase_start for st in mc.sub_targets]
+              for mc in cmd.motion_configs
+            ],
+            "target_phase_ends": [
+              [st.target_phase_end for st in mc.sub_targets]
+              for mc in cmd.motion_configs
+            ],
             "time_step_totals": cmd._time_step_totals.cpu().tolist(),
           }
         )
