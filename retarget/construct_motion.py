@@ -14,6 +14,7 @@ sys.path.insert(0, str(GMR_PATH))
 from general_motion_retargeting import GeneralMotionRetargeting as GMR
 from general_motion_retargeting import RobotMotionViewer as _BaseRobotMotionViewer
 from general_motion_retargeting.utils.smpl import load_smplx_file, get_smplx_data_offline_fast
+import general_motion_retargeting.params as _gmr_params
 from rich import print
 
 INITIAL_ROBOT_HEIGHT = 0.79
@@ -63,11 +64,15 @@ if __name__ == "__main__":
         ],
         default="unitree_g1",
     )
+    parser.add_argument("--robot_xml", type=str, default=None, help="Override the robot XML path")
     parser.add_argument("--save_path", default=None)
     parser.add_argument("--loop", default=False, action="store_true")
     parser.add_argument("--record_video", default=False, action="store_true")
     parser.add_argument("--rate_limit", default=False, action="store_true")
     args = parser.parse_args()
+
+    if args.robot_xml is not None:
+        _gmr_params.ROBOT_XML_DICT[args.robot] = pathlib.Path(args.robot_xml)
 
     SMPLX_FOLDER = GMR_PATH / "assets" / "body_models"
 
@@ -163,16 +168,9 @@ if __name__ == "__main__":
         )
 
         combined_data = np.hstack([root_pos, root_rot, dof_pos])
-        dof_count = dof_pos.shape[1]
-        header = (
-            [f"root_pos_{j}" for j in range(3)]
-            + [f"root_rot_{j}" for j in range(4)]
-            + [f"dof_pos_{j}" for j in range(dof_count)]
-        )
 
         with open(csv_path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(header)
             writer.writerows(combined_data)
         print(f"\nSaved to {csv_path}")
 

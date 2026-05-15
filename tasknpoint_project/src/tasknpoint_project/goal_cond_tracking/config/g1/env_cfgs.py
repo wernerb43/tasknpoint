@@ -1,11 +1,11 @@
 """Unitree G1 flat tracking environment configurations."""
 
 import mujoco
+from pathlib import Path
 from mjlab.asset_zoo.robots import (
   G1_ACTION_SCALE,
   get_g1_robot_cfg,
 )
-from mjlab.asset_zoo.robots.unitree_g1.g1_constants import get_spec as _get_g1_spec
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg
@@ -15,36 +15,16 @@ from tasknpoint_project.goal_cond_tracking.tracking_env_cfg import (
   make_multi_target_tracking_env_cfg,
 )
 
+_LOCAL_XML = Path(__file__).parents[6] / "robots" / "g1_tennis_27dof.xml"
 
-def _get_g1_tennis_spec() -> mujoco.MjSpec:
-  """Return the G1 spec augmented with a tennis racket on the right wrist."""
-  spec = _get_g1_spec()
-  wrist = next(b for b in spec.bodies if b.name == "right_wrist_yaw_link")
-  racket = wrist.add_body()
-  racket.name = "tennis_racket"
-  racket.pos = [0.08, 0, 0]
-  racket.mass = 0.1
-  racket.ipos = [0, 0, 0.35]
-  racket.fullinertia = [0.01, 0.01, 0.001, 0, 0, 0]
-  geom = racket.add_geom()
-  geom.name = "racket_handle"
-  geom.type = mujoco.mjtGeom.mjGEOM_CAPSULE
-  geom.fromto = [0, 0, 0, 0, 0, 0.40]
-  geom.size = [0.015, 0, 0]
-  geom.rgba = [0.55, 0.27, 0.07, 1.0]
-  site = racket.add_site()
-  site.name = "racket_contact"
-  site.pos = [0, 0, 0.4]
-  site.size = [0.02, 0, 0]
-  for jname in ("waist_roll_joint", "waist_pitch_joint"):
-    joint = next(j for j in spec.joints if j.name == jname)
-    joint.range = [-0.001, 0.001]
-  return spec
+
+def _get_local_g1_spec() -> mujoco.MjSpec:
+  return mujoco.MjSpec.from_file(str(_LOCAL_XML))
 
 
 def _get_g1_tennis_robot_cfg():
   cfg = get_g1_robot_cfg()
-  cfg.spec_fn = _get_g1_tennis_spec
+  cfg.spec_fn = _get_local_g1_spec
   return cfg
 
 

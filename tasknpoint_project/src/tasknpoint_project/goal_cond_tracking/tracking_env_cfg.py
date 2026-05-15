@@ -1,14 +1,3 @@
-"""Motion mimic task configuration.
-
-This module defines the base configuration for motion mimic tasks.
-Robot-specific configurations are located in the config/ directory.
-
-This is a re-implementation of BeyondMimic (https://beyondmimic.github.io/).
-
-Based on https://github.com/HybridRobotics/whole_body_tracking
-Commit: f8e20c880d9c8ec7172a13d3a88a65e3a5a88448
-"""
-
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
@@ -54,7 +43,7 @@ MOTIONS: list[MotionCfg] = [
     sub_targets=[
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=100.0,
+        goal_weight=00.0,
         source_link="racket_contact",
         source_type="site",
         target_pos_mean={"x": 0.5, "y": -0.7, "z": 0.0},
@@ -64,7 +53,7 @@ MOTIONS: list[MotionCfg] = [
       ),
       MotionGoalCfg(
         goal_type="velocity",
-        goal_weight=10.0,
+        goal_weight=0.0,
         source_link="racket_contact",
         source_type="site",
         target_phase_start=0.335,
@@ -74,7 +63,7 @@ MOTIONS: list[MotionCfg] = [
       ),
       MotionGoalCfg(
         goal_type="orientation",
-        goal_weight=10.0,
+        goal_weight=0.0,
         source_link="racket_contact",
         source_type="site",
         target_phase_start=0.335,
@@ -90,7 +79,7 @@ MOTIONS: list[MotionCfg] = [
     sub_targets=[
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=100.0,
+        goal_weight=00.0,
         source_link="racket_contact",
         source_type="site",
         target_pos_mean={"x": 0.5, "y": 0.6, "z": 0.0},
@@ -100,7 +89,7 @@ MOTIONS: list[MotionCfg] = [
       ),
       MotionGoalCfg(
         goal_type="velocity",
-        goal_weight=10.0,
+        goal_weight=0.0,
         source_link="racket_contact",
         source_type="site",
         target_phase_start=0.335,
@@ -110,7 +99,7 @@ MOTIONS: list[MotionCfg] = [
       ),
       MotionGoalCfg(
         goal_type="orientation",
-        goal_weight=10.0,
+        goal_weight=0.0,
         source_link="racket_contact",
         source_type="site",
         target_phase_start=0.335,
