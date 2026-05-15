@@ -1,0 +1,3 @@
+[submodule "submodules/GMR"]
+	path = submodules/GMR
+	url = git@github.com:YanjieZe/GMR.git

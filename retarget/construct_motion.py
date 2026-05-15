@@ -1,0 +1,179 @@
+import argparse
+import csv
+import os
+import pathlib
+import sys
+import time
+
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+
+GMR_PATH = pathlib.Path(__file__).parent.parent / "submodules" / "GMR"
+sys.path.insert(0, str(GMR_PATH))
+
+from general_motion_retargeting import GeneralMotionRetargeting as GMR
+from general_motion_retargeting import RobotMotionViewer as _BaseRobotMotionViewer
+from general_motion_retargeting.utils.smpl import load_smplx_file, get_smplx_data_offline_fast
+from rich import print
+
+INITIAL_ROBOT_HEIGHT = 0.79
+
+
+class RobotMotionViewer(_BaseRobotMotionViewer):
+    def __init__(self, *args, keyboard_callback=None, **kwargs):
+        self._user_key_callback = keyboard_callback
+        self.paused = False
+        self.current_frame = 0
+        self.total_frames = 0
+        super().__init__(*args, keyboard_callback=self._key_callback, **kwargs)
+
+    def _key_callback(self, keycode):
+        if keycode == 32:  # space bar
+            self.paused = not self.paused
+            if self.paused:
+                frame_time = self.current_frame / self.motion_fps
+                print(f"[bold yellow]PAUSED[/bold yellow] at frame {self.current_frame}/{self.total_frames}  t={frame_time:.3f}s")
+            else:
+                print(f"[bold green]RESUMED[/bold green]")
+        if self._user_key_callback is not None:
+            self._user_key_callback(keycode)
+
+    def step(self, *args, rate_limit=True, **kwargs):
+        super().step(*args, rate_limit=False, **kwargs)
+        while self.paused:
+            self.viewer.sync()
+            time.sleep(0.05)
+        if rate_limit:
+            self.rate_limiter.sleep()
+
+
+if __name__ == "__main__":
+    HERE = pathlib.Path(__file__).parent
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--smplx_file", type=str, default="")
+    parser.add_argument(
+        "--robot",
+        choices=[
+            "unitree_g1", "unitree_g1_with_hands", "unitree_h1", "unitree_h1_2",
+            "booster_t1", "booster_t1_29dof", "stanford_toddy", "fourier_n1",
+            "engineai_pm01", "kuavo_s45", "hightorque_hi", "galaxea_r1pro",
+            "berkeley_humanoid_lite", "booster_k1", "pnd_adam_lite", "openloong",
+            "tienkung", "fourier_gr3",
+        ],
+        default="unitree_g1",
+    )
+    parser.add_argument("--save_path", default=None)
+    parser.add_argument("--loop", default=False, action="store_true")
+    parser.add_argument("--record_video", default=False, action="store_true")
+    parser.add_argument("--rate_limit", default=False, action="store_true")
+    args = parser.parse_args()
+
+    SMPLX_FOLDER = GMR_PATH / "assets" / "body_models"
+
+    smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(
+        args.smplx_file, SMPLX_FOLDER
+    )
+
+    tgt_fps = 30
+    smplx_data_frames, aligned_fps = get_smplx_data_offline_fast(
+        smplx_data, body_model, smplx_output, tgt_fps=tgt_fps
+    )
+
+    retarget = GMR(
+        actual_human_height=actual_human_height,
+        src_human="smplx",
+        tgt_robot=args.robot,
+    )
+
+    robot_motion_viewer = RobotMotionViewer(
+        robot_type=args.robot,
+        motion_fps=aligned_fps,
+        transparent_robot=0,
+        record_video=args.record_video,
+        video_path=f"videos/{args.robot}_{args.smplx_file.split('/')[-1].split('.')[0]}.mp4",
+    )
+    robot_motion_viewer.total_frames = len(smplx_data_frames)
+
+    # Compute offsets from first frame so robot starts at [0, 0, INITIAL_ROBOT_HEIGHT] with identity rotation
+    first_frame_qpos = retarget.retarget(smplx_data_frames[0])
+
+    pos_offset = np.array([0.0, 0.0, INITIAL_ROBOT_HEIGHT]) - first_frame_qpos[:3]
+
+    initial_quat_wxyz = first_frame_qpos[3:7]
+    initial_quat_xyzw = initial_quat_wxyz[[1, 2, 3, 0]]
+    rot_offset_rpy = R.from_quat(initial_quat_xyzw).inv().as_euler("xyz")
+
+    print(f"Calculated pos_offset: {pos_offset}")
+    print(f"Calculated rot_offset_rpy: {rot_offset_rpy}")
+
+    if args.save_path is not None:
+        save_dir = os.path.dirname(args.save_path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+        qpos_list = []
+
+    i = 0
+    while True:
+        if args.loop:
+            i = (i + 1) % len(smplx_data_frames)
+        else:
+            i += 1
+            if i >= len(smplx_data_frames):
+                break
+
+        qpos = retarget.retarget(smplx_data_frames[i])
+
+        adjusted_root_pos = qpos[:3] + pos_offset
+
+        root_rot_xyzw = qpos[[4, 5, 6, 3]]  # wxyz -> xyzw
+        offset_quat_xyzw = R.from_euler("xyz", rot_offset_rpy).as_quat()
+        result_xyzw = (R.from_quat(root_rot_xyzw) * R.from_quat(offset_quat_xyzw)).as_quat()
+        adjusted_root_rot = result_xyzw[[3, 0, 1, 2]]  # xyzw -> wxyz
+
+        robot_motion_viewer.current_frame = i
+        print(f"\rFrame {i:>5d}/{len(smplx_data_frames)}  t={i / aligned_fps:.3f}s", end="", flush=True)
+
+        robot_motion_viewer.step(
+            root_pos=adjusted_root_pos,
+            root_rot=adjusted_root_rot,
+            dof_pos=qpos[7:],
+            human_motion_data=retarget.scaled_human_data,
+            human_pos_offset=pos_offset,
+            show_human_body_name=False,
+            rate_limit=args.rate_limit,
+            follow_camera=False,
+        )
+
+        if args.save_path is not None:
+            adjusted_qpos = qpos.copy()
+            adjusted_qpos[:3] = adjusted_root_pos
+            adjusted_qpos[3:7] = adjusted_root_rot
+            qpos_list.append(adjusted_qpos)
+
+    if args.save_path is not None:
+        root_pos = np.array([q[:3] for q in qpos_list])
+        root_rot = np.array([q[3:7][[1, 2, 3, 0]] for q in qpos_list])  # wxyz -> xyzw
+        dof_pos = np.array([q[7:] for q in qpos_list])
+
+        csv_path = (
+            args.save_path.replace(".pkl", ".csv")
+            if args.save_path.endswith(".pkl")
+            else args.save_path + ".csv"
+        )
+
+        combined_data = np.hstack([root_pos, root_rot, dof_pos])
+        dof_count = dof_pos.shape[1]
+        header = (
+            [f"root_pos_{j}" for j in range(3)]
+            + [f"root_rot_{j}" for j in range(4)]
+            + [f"dof_pos_{j}" for j in range(dof_count)]
+        )
+
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            writer.writerows(combined_data)
+        print(f"\nSaved to {csv_path}")
+
+    robot_motion_viewer.close()

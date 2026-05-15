@@ -1,1 +1,6 @@
 **/__pycache__/
+artifacts/
+logs/
+wandb/
+retarget/retarget_inputs/
+retarget/retarget_outputs/
