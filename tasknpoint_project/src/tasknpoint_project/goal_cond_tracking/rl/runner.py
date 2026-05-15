@@ -12,7 +12,7 @@ from mjlab.rl.exporter_utils import (
   get_base_metadata,
 )
 from mjlab.rl.runner import MjlabOnPolicyRunner
-from tasknpoint_project.tracking.mdp import MultiTargetMotionCommand
+from tasknpoint_project.goal_cond_tracking.mdp import MultiTargetMotionCommand
 
 
 class _OnnxMotionModel(nn.Module):

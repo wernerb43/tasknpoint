@@ -15,9 +15,9 @@ import wandb
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_runner_cls
-from tasknpoint_project.tracking.mdp import MotionCommandCfg
-from tasknpoint_project.tracking.mdp.commands import MotionCommand
-from tasknpoint_project.tracking.mdp.metrics import (
+from tasknpoint_project.goal_cond_tracking.mdp import MotionCommandCfg
+from tasknpoint_project.goal_cond_tracking.mdp.commands import MotionCommand
+from tasknpoint_project.goal_cond_tracking.mdp.metrics import (
   compute_ee_orientation_error,
   compute_ee_position_error,
   compute_joint_velocity_error,

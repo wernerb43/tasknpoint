@@ -1,3 +1,3 @@
-from tasknpoint_project.tracking.rl.runner import (
+from tasknpoint_project.goal_cond_tracking.rl.runner import (
   MotionTrackingOnPolicyRunner as MotionTrackingOnPolicyRunner,
 )

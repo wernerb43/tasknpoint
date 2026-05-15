@@ -10,8 +10,8 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
-from tasknpoint_project.tracking.mdp import MultiTargetMotionCommandCfg
-from tasknpoint_project.tracking.tracking_env_cfg import (
+from tasknpoint_project.goal_cond_tracking.mdp import MultiTargetMotionCommandCfg
+from tasknpoint_project.goal_cond_tracking.tracking_env_cfg import (
   make_multi_target_tracking_env_cfg,
 )
 
@@ -36,6 +36,9 @@ def _get_g1_tennis_spec() -> mujoco.MjSpec:
   site.name = "racket_contact"
   site.pos = [0, 0, 0.4]
   site.size = [0.02, 0, 0]
+  for jname in ("waist_roll_joint", "waist_pitch_joint"):
+    joint = next(j for j in spec.joints if j.name == jname)
+    joint.range = [-0.001, 0.001]
   return spec
 
 

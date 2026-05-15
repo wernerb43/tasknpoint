@@ -9,7 +9,7 @@ import mjlab
 from mjlab.entity import Entity
 from mjlab.scene import Scene
 from mjlab.sim.sim import Simulation, SimulationCfg
-from tasknpoint_project.tracking.config.g1.env_cfgs import (
+from tasknpoint_project.goal_cond_tracking.config.g1.env_cfgs import (
   unitree_g1_multi_target_tracking_env_cfg,
 )
 from mjlab.utils.lab_api.math import (

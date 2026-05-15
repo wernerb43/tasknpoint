@@ -1,5 +1,5 @@
 from mjlab.tasks.registry import register_mjlab_task
-from tasknpoint_project.tracking.rl import MotionTrackingOnPolicyRunner
+from tasknpoint_project.goal_cond_tracking.rl import MotionTrackingOnPolicyRunner
 
 from .env_cfgs import (
   unitree_g1_multi_target_tracking_env_cfg,

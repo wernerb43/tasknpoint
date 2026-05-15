@@ -21,8 +21,8 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from tasknpoint_project.tracking import mdp
-from tasknpoint_project.tracking.mdp import (
+from tasknpoint_project.goal_cond_tracking import mdp
+from tasknpoint_project.goal_cond_tracking.mdp import (
   MotionGoalCfg,
   MotionCfg,
   MultiTargetMotionCommandCfg,
