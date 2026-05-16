@@ -15,7 +15,7 @@ from tasknpoint_project.goal_cond_tracking.tracking_env_cfg import (
   make_multi_target_tracking_env_cfg,
 )
 
-_LOCAL_XML = Path(__file__).parents[6] / "robots" / "g1_soccer_27dof.xml"
+_LOCAL_XML = Path(__file__).parents[6] / "robots" / "g1_tennis_27dof.xml"
 
 
 def _get_local_g1_spec() -> mujoco.MjSpec:
