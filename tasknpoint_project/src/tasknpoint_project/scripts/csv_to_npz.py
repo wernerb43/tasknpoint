@@ -25,7 +25,7 @@ from mjlab.viewer.viewer_config import ViewerConfig
 
 # Each entry is (name, phase) where name is a body or site name and phase is in [0, 1].
 PROBE_POINTS: list[tuple[str, float]] = [
-  ("racket_contact", 0.345),
+  ("racket_contact", 0.333),
 ]
 
 
@@ -226,12 +226,12 @@ def print_probe_results(
       print(f"  [{name}] WARNING: not found as body or site — skipping")
       continue
 
-    pos_body = quat_apply_inverse(root_quat_w[frame], pos_w - root_pos_w[frame])
+    pos_init = quat_apply_inverse(root_quat_w[0], pos_w - root_pos_w[0])
 
     print(f"\n  {name} ({kind})  phase={phase:.3f}  frame={frame}  t={t:.3f}s")
     print(f"    world frame : x={pos_w[0]:.4f}  y={pos_w[1]:.4f}  z={pos_w[2]:.4f}")
     print(
-      f"    root  frame : x={pos_body[0]:.4f}  y={pos_body[1]:.4f}  z={pos_body[2]:.4f}"
+      f"    init  frame : x={pos_init[0]:.4f}  y={pos_init[1]:.4f}  z={pos_init[2]:.4f}"
     )
 
   print("\n" + "=" * 60 + "\n")

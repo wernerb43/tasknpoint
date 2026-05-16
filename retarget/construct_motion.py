@@ -66,6 +66,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--robot_xml", type=str, default=None, help="Override the robot XML path")
     parser.add_argument("--save_path", default=None)
+    parser.add_argument("--start_frame", type=int, default=0)
     parser.add_argument("--loop", default=False, action="store_true")
     parser.add_argument("--record_video", default=False, action="store_true")
     parser.add_argument("--rate_limit", default=False, action="store_true")
@@ -91,6 +92,8 @@ if __name__ == "__main__":
         tgt_robot=args.robot,
     )
 
+    start_frame = max(0, min(args.start_frame, len(smplx_data_frames) - 1))
+
     robot_motion_viewer = RobotMotionViewer(
         robot_type=args.robot,
         motion_fps=aligned_fps,
@@ -98,10 +101,10 @@ if __name__ == "__main__":
         record_video=args.record_video,
         video_path=f"videos/{args.robot}_{args.smplx_file.split('/')[-1].split('.')[0]}.mp4",
     )
-    robot_motion_viewer.total_frames = len(smplx_data_frames)
+    robot_motion_viewer.total_frames = len(smplx_data_frames) - start_frame
 
-    # Compute offsets from first frame so robot starts at [0, 0, INITIAL_ROBOT_HEIGHT] with identity rotation
-    first_frame_qpos = retarget.retarget(smplx_data_frames[0])
+    # Compute offsets from start frame so robot begins at [0, 0, INITIAL_ROBOT_HEIGHT] with identity rotation
+    first_frame_qpos = retarget.retarget(smplx_data_frames[start_frame])
 
     pos_offset = np.array([0.0, 0.0, INITIAL_ROBOT_HEIGHT]) - first_frame_qpos[:3]
 
@@ -118,15 +121,8 @@ if __name__ == "__main__":
             os.makedirs(save_dir, exist_ok=True)
         qpos_list = []
 
-    i = 0
+    i = start_frame
     while True:
-        if args.loop:
-            i = (i + 1) % len(smplx_data_frames)
-        else:
-            i += 1
-            if i >= len(smplx_data_frames):
-                break
-
         qpos = retarget.retarget(smplx_data_frames[i])
 
         adjusted_root_pos = qpos[:3] + pos_offset
@@ -136,8 +132,9 @@ if __name__ == "__main__":
         result_xyzw = (R.from_quat(root_rot_xyzw) * R.from_quat(offset_quat_xyzw)).as_quat()
         adjusted_root_rot = result_xyzw[[3, 0, 1, 2]]  # xyzw -> wxyz
 
-        robot_motion_viewer.current_frame = i
-        print(f"\rFrame {i:>5d}/{len(smplx_data_frames)}  t={i / aligned_fps:.3f}s", end="", flush=True)
+        rel = i - start_frame
+        robot_motion_viewer.current_frame = rel
+        print(f"\rFrame {rel:>5d}/{len(smplx_data_frames) - start_frame}  t={rel / aligned_fps:.3f}s", end="", flush=True)
 
         robot_motion_viewer.step(
             root_pos=adjusted_root_pos,
@@ -155,6 +152,13 @@ if __name__ == "__main__":
             adjusted_qpos[:3] = adjusted_root_pos
             adjusted_qpos[3:7] = adjusted_root_rot
             qpos_list.append(adjusted_qpos)
+
+        if args.loop:
+            i = (i + 1) % len(smplx_data_frames)
+        else:
+            i += 1
+            if i >= len(smplx_data_frames):
+                break
 
     if args.save_path is not None:
         root_pos = np.array([q[:3] for q in qpos_list])
