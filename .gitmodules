@@ -1,3 +1,6 @@
 [submodule "submodules/GMR"]
 	path = submodules/GMR
 	url = git@github.com:YanjieZe/GMR.git
+[submodule "submodules/deploy_robot"]
+	path = submodules/deploy_robot
+	url = git@github.com:sesteban951/deploy_robot.git

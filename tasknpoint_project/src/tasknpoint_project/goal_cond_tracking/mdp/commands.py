@@ -167,11 +167,6 @@ class MultiTargetMotionCommand(CommandTerm):
     num_motions = len(self.motion_loaders)
     max_t = max(m.time_step_total for m in self.motion_loaders)
 
-    # Sinusoid
-    self.p = torch.tensor(
-      [2, 4, 8, 16, 32], dtype=torch.float32, device=self.device
-    ).sqrt()  # (5,)
-
     def _pad_stack(tensors: list[torch.Tensor], max_len: int) -> torch.Tensor:
       padded = []
       for t in tensors:
@@ -551,10 +546,6 @@ class MultiTargetMotionCommand(CommandTerm):
       self.joint_vel,
     ]  # always use joint pos and vel
 
-    # # test: add sinusoidal encoding in command obs
-    # parts: list[torch.Tensor] = [
-    #   # self.sinusoid_encoding(),
-    # ]
 
     for s, goal_type in enumerate(
       self._subtarget_goal_types
@@ -571,12 +562,6 @@ class MultiTargetMotionCommand(CommandTerm):
   # ------------------------------------------------------------------
   # Properties: motion data
   # ------------------------------------------------------------------
-
-  def sinusoid_encoding(self) -> torch.Tensor:
-    t = self._clamped_time_steps().float()  # (num_envs,)
-    w = self.which_motion.float()  # (num_envs,) — motion-specific phase shift
-    return torch.sin(t[:, None] / self.p[None, :] + w[:, None])  # (num_envs, 10)
-
   @property
   def joint_pos(self) -> torch.Tensor:
     t = self._clamped_time_steps()

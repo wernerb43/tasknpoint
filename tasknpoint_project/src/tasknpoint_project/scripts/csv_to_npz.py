@@ -25,7 +25,7 @@ from mjlab.viewer.viewer_config import ViewerConfig
 
 # Each entry is (name, phase) where name is a body or site name and phase is in [0, 1].
 PROBE_POINTS: list[tuple[str, float]] = [
-  ("racket_contact", 0.333),
+  ("right_foot", 0.404),
 ]
 
 
