@@ -96,3 +96,17 @@ def _get_body_indices(
     List of indices into command.cfg.body_names.
   """
   return [i for i, name in enumerate(command.cfg.body_names) if name in body_names]
+
+
+def compute_goal_position_error(
+  command: MultiTargetMotionCommand,
+  source_links: tuple[str, ...],
+) -> torch.Tensor:
+  """Compute current per-env distance from source link to goal target (sub-target 0)."""
+  source_pos = command.get_source_pos_w()[:, 0, :]  # (num_envs, 3)
+  target_pos = command.target_position_w[:, 0, :]   # (num_envs, 3)
+  return torch.norm(source_pos - target_pos, dim=-1)  # (num_envs,)
+
+
+
+
