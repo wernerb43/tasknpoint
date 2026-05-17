@@ -1,7 +1,5 @@
 """Unitree G1 flat tracking environment configurations."""
 
-import mujoco
-from pathlib import Path
 from mjlab.asset_zoo.robots import (
   G1_ACTION_SCALE,
   get_g1_robot_cfg,
@@ -15,18 +13,6 @@ from tasknpoint_project.goal_cond_tracking.tracking_env_cfg import (
   make_multi_target_tracking_env_cfg,
 )
 
-_LOCAL_XML = Path(__file__).parents[6] / "robots" / "g1_tennis_27dof.xml"
-
-
-def _get_local_g1_spec() -> mujoco.MjSpec:
-  return mujoco.MjSpec.from_file(str(_LOCAL_XML))
-
-
-def _get_g1_tennis_robot_cfg():
-  cfg = get_g1_robot_cfg()
-  cfg.spec_fn = _get_local_g1_spec
-  return cfg
-
 
 def unitree_g1_multi_target_tracking_env_cfg(
   play: bool = False,
@@ -34,7 +20,7 @@ def unitree_g1_multi_target_tracking_env_cfg(
   """Create Unitree G1 multi-target tracking configuration."""
   cfg = make_multi_target_tracking_env_cfg()
 
-  cfg.scene.entities = {"robot": _get_g1_tennis_robot_cfg()}
+  cfg.scene.entities = {"robot": get_g1_robot_cfg()}
 
   self_collision_cfg = ContactSensorCfg(
     name="self_collision",

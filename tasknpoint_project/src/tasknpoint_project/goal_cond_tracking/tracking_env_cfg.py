@@ -15,7 +15,7 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 from tasknpoint_project.goal_cond_tracking import mdp
 from tasknpoint_project.goal_cond_tracking.mdp import MotionCfg, MultiTargetMotionCommandCfg
-from tasknpoint_project.goal_cond_tracking.motion_lib import MOTION_LIB
+from tasknpoint_project.motion_sets.motion_lib import MOTION_LIB
 
 VELOCITY_RANGE = {
   "x": (-0.5, 0.5),

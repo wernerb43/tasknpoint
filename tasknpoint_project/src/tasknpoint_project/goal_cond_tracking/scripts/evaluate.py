@@ -18,7 +18,7 @@ from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_run
 from mjlab.utils.lab_api.math import quat_apply
 from tasknpoint_project.goal_cond_tracking.mdp import MultiTargetMotionCommandCfg
 from tasknpoint_project.goal_cond_tracking.mdp.commands import MultiTargetMotionCommand
-from tasknpoint_project.goal_cond_tracking.motion_set import filter_motion_cmd_cfg
+from tasknpoint_project.motion_sets.motion_set import filter_motion_cmd_cfg
 from tasknpoint_project.goal_cond_tracking.mdp.metrics import compute_goal_position_error
 from mjlab.utils.os import get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
@@ -42,9 +42,11 @@ class EvaluateConfig:
   """Minimum z of goal point range in anchor (pelvis) frame."""
   target_z_max: float
   """Maximum z of goal point range in anchor (pelvis) frame."""
+  motion_config: Path | None = None
+  """Path to a motion set TOML. Drives --registry-name and robot XML when provided."""
   registry_name: str | None = None
   """Comma-separated W&B registry artifact names for motion files (e.g. 'entity/proj/right_kick:v0,entity/proj/left_kick:v0').
-  If omitted, motion artifacts are pulled from the run's used artifacts."""
+  If omitted (and no --motion-config), motion artifacts are pulled from the run's used artifacts."""
   wandb_checkpoint_name: str | None = None
   """Optional checkpoint name within the W&B run to load (e.g. 'model_4000.pt')."""
   num_envs: int = 1024
@@ -115,10 +117,25 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
   if not isinstance(motion_cmd_cfg, MultiTargetMotionCommandCfg):
     raise ValueError(f"Task {task_id} is not a tracking task.")
 
+  # Load motion set from TOML when --motion-config is provided.
+  motion_set = None
+  if cfg.motion_config is not None:
+    import mujoco
+    from tasknpoint_project.motion_sets.motion_set import MotionSet
+    motion_set = MotionSet.from_toml(cfg.motion_config)
+
+    if motion_set.robot_xml is not None:
+      _xml = motion_set.robot_xml
+      robot_entity = env_cfg.scene.entities.get("robot")
+      if robot_entity is not None:
+        robot_entity.spec_fn = lambda: mujoco.MjSpec.from_file(_xml)
+      print(f"[INFO] Robot XML from motion config: {_xml}")
+
   # Load motion files from W&B.
   api = wandb.Api()
-  if cfg.registry_name:
-    registry_names = [r.strip() for r in cfg.registry_name.split(",")]
+  registry_name = motion_set.eval_registry() if (motion_set and cfg.registry_name is None) else cfg.registry_name
+  if registry_name:
+    registry_names = [r.strip() for r in registry_name.split(",")]
     motion_files: list[str] = []
     motion_names: list[str] = []
     for rn in registry_names:
@@ -130,7 +147,7 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
       motion_names.append(rn.split("/")[-1].split(":")[0])
       print(f"[INFO] Downloaded motion: {rn} -> {motion_files[-1]}")
     motion_cmd_cfg.motion_files = motion_files
-    filter_motion_cmd_cfg(motion_cmd_cfg, motion_names)
+    filter_motion_cmd_cfg(motion_cmd_cfg, motion_set.enabled_names if motion_set else motion_names)
   else:
     run = api.run(cfg.wandb_run_path)
     arts = [a for a in run.used_artifacts() if a.type == "motions"]
