@@ -6,6 +6,9 @@
 #   Train:    uv run train <task> --registry-name $(uv run motion-set motion_sets/all_motions.toml)
 #   Evaluate: ... --registry-name $(uv run motion-set motion_sets/all_motions.toml --eval)
 
+[robot]
+xml = "robots/g1_tennis_27dof.xml"
+
 [registry]
 train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
 eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"

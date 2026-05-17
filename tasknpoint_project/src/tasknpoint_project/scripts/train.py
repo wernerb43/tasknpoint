@@ -26,6 +26,8 @@ class TrainConfig:
   env: ManagerBasedRlEnvCfg
   agent: RslRlBaseRunnerCfg
   registry_name: str | None = None
+  motion_config: Path | None = None
+  """Path to a motion set TOML. Drives --registry-name and robot XML when provided."""
   video: bool = False
   video_length: int = 200
   video_interval: int = 2000
@@ -77,15 +79,33 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     motion_cmd = cfg.env.commands["motion"]
     assert isinstance(motion_cmd, MultiTargetMotionCommandCfg)
 
+    # Load motion set from TOML when --motion-config is provided.
+    motion_set = None
+    if cfg.motion_config is not None:
+      import mujoco
+      from tasknpoint_project.motion_sets.motion_set import MotionSet
+      motion_set = MotionSet.from_toml(cfg.motion_config)
+
+      if motion_set.robot_xml is not None:
+        _xml = motion_set.robot_xml
+        robot_entity = cfg.env.scene.entities.get("robot")
+        if robot_entity is not None:
+          robot_entity.spec_fn = lambda: mujoco.MjSpec.from_file(_xml)
+        print(f"[INFO] Robot XML from motion config: {_xml}")
+
+      if cfg.registry_name is None:
+        registry_name = motion_set.train_registry()
+    else:
+      registry_name = cast(str, cfg.registry_name) if cfg.registry_name else None
+
     if motion_cmd.motion_files and all(
       Path(f).exists() for f in motion_cmd.motion_files
     ):
       print(f"[INFO] Using local motion files: {motion_cmd.motion_files}")
-    elif cfg.registry_name:
-      registry_name = cast(str, cfg.registry_name)
+    elif registry_name:
       registry_names = [r.strip() for r in registry_name.split(",")]
       import wandb
-      from tasknpoint_project.goal_cond_tracking.motion_set import filter_motion_cmd_cfg
+      from tasknpoint_project.motion_sets.motion_set import filter_motion_cmd_cfg
 
       api = wandb.Api()
       motion_files: list[str] = []
@@ -98,10 +118,11 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
         motion_names.append(rn.split("/")[-1].split(":")[0])
         print(f"[INFO] Downloaded motion: {rn} -> {motion_files[-1]}")
       motion_cmd.motion_files = motion_files
-      filter_motion_cmd_cfg(motion_cmd, motion_names)
+      filter_motion_cmd_cfg(motion_cmd, motion_set.enabled_names if motion_set else motion_names)
     else:
       raise ValueError(
         "For multi-target tracking tasks, provide either:\n"
+        "  --motion-config path/to/config.toml (reads registry + robot XML from TOML)\n"
         "  --registry-name name1,name2,... (comma-separated WandB registry names)\n"
         "  --env.commands.motion.motion-files '[f1.npz,f2.npz]' (local files)"
       )

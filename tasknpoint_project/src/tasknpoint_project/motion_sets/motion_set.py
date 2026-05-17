@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from tasknpoint_project.goal_cond_tracking.mdp import MotionCfg
+
+# Paths in [robot] sections are relative to the repo root (tasknpoint/).
+# This file lives at src/tasknpoint_project/motion_sets/motion_set.py,
+# so parents[4] is the repo root for editable installs.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 @dataclass
@@ -18,6 +23,8 @@ class MotionSet:
     train_prefix: str
     eval_prefix: str
     _entries: list[tuple[str, bool]]  # (name, enabled)
+    robot_xml: str | None = field(default=None)
+    """Absolute path to the robot XML, resolved from [robot].xml in the TOML."""
 
     @classmethod
     def from_toml(cls, path: str | Path) -> "MotionSet":
@@ -25,10 +32,16 @@ class MotionSet:
             data = tomllib.load(f)
         registry = data.get("registry", {})
         entries = [(m["name"], m.get("enabled", True)) for m in data.get("motions", [])]
+        robot_xml_raw = data.get("robot", {}).get("xml")
+        robot_xml = None
+        if robot_xml_raw is not None:
+            p = Path(robot_xml_raw)
+            robot_xml = str((_REPO_ROOT / p).resolve()) if not p.is_absolute() else str(p)
         return cls(
             train_prefix=registry.get("train_prefix", ""),
             eval_prefix=registry.get("eval_prefix", ""),
             _entries=entries,
+            robot_xml=robot_xml,
         )
 
     @property
@@ -48,7 +61,7 @@ class MotionSet:
             lib: Motion library to look up specs from. Defaults to MOTION_LIB.
         """
         if lib is None:
-            from tasknpoint_project.goal_cond_tracking.motion_lib import MOTION_LIB
+            from tasknpoint_project.motion_sets.motion_lib import MOTION_LIB
             lib = MOTION_LIB
         missing = [n for n in self.enabled_names if n not in lib]
         if missing:
@@ -63,7 +76,7 @@ def filter_motion_cmd_cfg(motion_cmd_cfg: "MultiTargetMotionCommandCfg", motion_
     still holds all entries from MOTION_LIB. This aligns the two so _sample_motion_ids
     doesn't crash on a size mismatch between weights and loaded files.
     """
-    from tasknpoint_project.goal_cond_tracking.motion_lib import MOTION_LIB
+    from tasknpoint_project.motion_sets.motion_lib import MOTION_LIB
     from tasknpoint_project.goal_cond_tracking.mdp import MultiTargetMotionCommandCfg as _Cfg
 
     assert isinstance(motion_cmd_cfg, _Cfg)

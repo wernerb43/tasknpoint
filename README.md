@@ -33,9 +33,9 @@ MUJOCO_GL=egl uv run --directory tasknpoint_project python \
 
 ### step 3: launch training
 
-Motion sets are defined in `tasknpoint_project/motion_sets/*.toml`.
-Edit a `.toml` to enable/disable motions; motion specs live in
-`tasknpoint_project/src/tasknpoint_project/goal_cond_tracking/motion_lib.py`.
+All motion config lives in `src/tasknpoint_project/motion_sets/`:
+- `motion_lib.py` — motion specs (positions, phases, weights)
+- `motion_train_configs/*.toml` — train sets: which motions, registry prefixes, robot XML
 
 Run from `tasknpoint_project/`:
 
@@ -45,25 +45,25 @@ uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --registry-name demalenk-california-institute-of-technology-caltech/csv_to_npz/backhand \
     --env.scene.num-envs 4096
 
-# motion set — all motions:
+# motion set — all motions (TOML drives registry + robot XML):
 uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
-    --registry-name $(uv run motion-set motion_sets/all_motions.toml) \
+    --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/all_motions.toml \
     --env.scene.num-envs 4096
 
 # motion set — tennis only:
 uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
-    --registry-name $(uv run motion-set motion_sets/tennis_only.toml) \
+    --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only.toml \
     --env.scene.num-envs 4096
 
 # motion set — kicks only:
 uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
-    --registry-name $(uv run motion-set motion_sets/kicks_only.toml) \
+    --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/kicks_only.toml \
     --env.scene.num-envs 4096
 ```
 
 To see which motions a set contains:
 ```
-uv run motion-set motion_sets/all_motions.toml --list
+uv run motion-set src/tasknpoint_project/motion_sets/motion_train_configs/all_motions.toml --list
 ```
 
 ## Evals
@@ -74,10 +74,10 @@ Run from `tasknpoint_project/`:
 uv run python -m tasknpoint_project.goal_cond_tracking.scripts.evaluate \
     Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/awxs697x \
+    --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/kicks_only.toml \
     --target-x-min 0.3 --target-x-max 0.7 \
     --target-y-min -0.8 --target-y-max 0.0 \
-    --target-z-min -0.72 --target-z-max -0.71 \
-    --registry-name $(uv run motion-set motion_sets/kicks_only.toml --eval)
+    --target-z-min -0.72 --target-z-max -0.71
 ```
 
 The `--eval` flag uses the eval registry prefix (`wandb-registry-motions`).
