@@ -47,7 +47,7 @@ class EvaluateConfig:
   If omitted, motion artifacts are pulled from the run's used artifacts."""
   wandb_checkpoint_name: str | None = None
   """Optional checkpoint name within the W&B run to load (e.g. 'model_4000.pt')."""
-  num_envs: int = 1024
+  num_envs: int = 4096
   """Number of parallel environments (= number of episodes to evaluate)."""
   device: str | None = None
   """Device to run on. Defaults to CUDA if available."""
@@ -56,6 +56,30 @@ class EvaluateConfig:
   the chosen motion's start frame. When False, motions and targets are overridden in-place."""
   output_file: str | None = None
   """Optional path to save metrics as JSON."""
+
+
+def _plot_phase_histogram(
+  time_offset: torch.Tensor,
+  window_half_s: float,
+  save_path: str,
+) -> None:
+  """Save a matplotlib histogram of closest-approach time offsets from the goal phase."""
+  import matplotlib.pyplot as plt
+
+  offsets = time_offset.cpu().numpy()
+
+  fig, ax = plt.subplots(figsize=(8, 4))
+  ax.hist(offsets, bins=60, color="steelblue", edgecolor="white", linewidth=0.4)
+  ax.axvline(0, color="crimson", linewidth=1.5, label="goal phase")
+  ax.axvspan(-window_half_s, window_half_s, alpha=0.2, color="crimson", label="goal window")
+  ax.set_xlabel("Time offset from goal phase (s)")
+  ax.set_ylabel("Environments")
+  ax.set_title("Closest-approach phase distribution")
+  ax.legend()
+  fig.tight_layout()
+  plt.savefig(save_path, dpi=150)
+  print(f"[INFO] Phase histogram saved to {save_path}")
+  plt.close(fig)
 
 
 def _assign_motions_and_targets(
@@ -223,6 +247,17 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
   )
   in_phase = (phase >= phase_starts) & (phase <= phase_ends)
   goal_phase_success_rate = in_phase.float().mean().item()
+
+  nominal_phase = (phase_starts + phase_ends) / 2  # (num_envs,)
+  phase_offset = phase - nominal_phase              # signed offset from goal phase center
+
+  step_dt = env.unwrapped.step_dt
+  motion_lengths_s = motion_lengths * step_dt          # (num_envs,) in seconds
+  time_offset_s = phase_offset * motion_lengths_s      # (num_envs,) in seconds
+  window_half_s = ((phase_ends - phase_starts) / 2 * motion_lengths_s).mean().item()
+
+  plot_path = str(Path(cfg.output_file).with_suffix(".png")) if cfg.output_file else "phase_histogram.png"
+  _plot_phase_histogram(time_offset_s, window_half_s, plot_path)
 
   metrics = {
     "success_rate": success.float().mean().item(),
