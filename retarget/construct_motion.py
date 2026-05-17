@@ -70,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument("--loop", default=False, action="store_true")
     parser.add_argument("--record_video", default=False, action="store_true")
     parser.add_argument("--rate_limit", default=False, action="store_true")
+    parser.add_argument("--cam_distance_scale", type=float, default=1.5)
     args = parser.parse_args()
 
     if args.robot_xml is not None:
@@ -100,6 +101,7 @@ if __name__ == "__main__":
         transparent_robot=0,
         record_video=args.record_video,
         video_path=f"videos/{args.robot}_{args.smplx_file.split('/')[-1].split('.')[0]}.mp4",
+        cam_distance_scale=args.cam_distance_scale,
     )
     robot_motion_viewer.total_frames = len(smplx_data_frames) - start_frame
 

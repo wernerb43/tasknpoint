@@ -1,6 +1,12 @@
 **/__pycache__/
+**/*.pyc
+MUJOCO_LOG.TXT
 artifacts/
 logs/
 wandb/
 retarget/retarget_inputs/
 retarget/retarget_outputs/
+
+tasknpoint/videos/*
+tasknpoint/**/.mp4
+**/*.mp4

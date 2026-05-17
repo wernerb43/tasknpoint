@@ -10,16 +10,12 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from tasknpoint_project.goal_cond_tracking import mdp
-from tasknpoint_project.goal_cond_tracking.mdp import (
-  MotionGoalCfg,
-  MotionCfg,
-  MultiTargetMotionCommandCfg,
-)
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
-import numpy as np
+from tasknpoint_project.goal_cond_tracking import mdp
+from tasknpoint_project.goal_cond_tracking.mdp import MotionCfg, MultiTargetMotionCommandCfg
+from tasknpoint_project.goal_cond_tracking.motion_lib import MOTION_LIB
 
 VELOCITY_RANGE = {
   "x": (-0.5, 0.5),
@@ -30,389 +26,24 @@ VELOCITY_RANGE = {
   "yaw": (-0.78, 0.78),
 }
 
-# ---------------------------------------------------------------------------
-# Per-motion target configuration
-# Each entry groups all parameters that belong to one motion
-# ---------------------------------------------------------------------------
-
-
 # Ordered list — index matches the motion file order passed at training time.
-MOTIONS: list[MotionCfg] = [
-
-  MotionCfg(  # Right Kick
-    sampling_weight=1.0,
-    sub_targets=[
-      MotionGoalCfg(
-        goal_type="position",
-        goal_weight=100.0,
-        source_link="right_foot",
-        source_type="site",
-        target_pos_mean={"x": 0.5, "y": -0.6, "z": -0.70},
-        target_pos_std={"x": 0.10, "y": 0.20, "z": 0.01},
-        target_phase_start=0.290,
-        target_phase_end=0.297,
-      ),
-      MotionGoalCfg(
-        goal_type="velocity",
-        goal_weight=10.0,
-        source_link="right_foot",
-        source_type="site",
-        target_phase_start=0.285,
-        target_phase_end=0.302,
-        target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.0},
-        target_vel_std={"x": 0.0, "y": 0.0, "z": 0.0},
-      ),
-      MotionGoalCfg(
-        goal_type="orientation",
-        goal_weight=10.0,
-        source_link="right_foot",
-        source_type="site",
-        target_phase_start=0.290,
-        target_phase_end=0.297,
-        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": -np.pi / 2},
-        target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
-        orientation_axis="y",
-      ),
-    ],
-  ),
-  MotionCfg(  # Left Kick
-    sampling_weight=1.0,
-    sub_targets=[
-      MotionGoalCfg(
-        goal_type="position",
-        goal_weight=100.0,
-        source_link="left_foot",
-        source_type="site",
-        target_pos_mean={"x": 0.5, "y": 0.0, "z": -0.70},
-        target_pos_std={"x": 0.10, "y": 0.20, "z": 0.01},
-        target_phase_start=0.340,
-        target_phase_end=0.347,
-      ),
-      MotionGoalCfg(
-        goal_type="velocity",
-        goal_weight=10.0,
-        source_link="left_foot",
-        source_type="site",
-        target_phase_start=0.335,
-        target_phase_end=0.352,
-        target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.0},
-        target_vel_std={"x": 0.0, "y": 0.0, "z": 0.0},
-      ),
-      MotionGoalCfg(
-        goal_type="orientation",
-        goal_weight=10.0,
-        source_link="left_foot",
-        source_type="site",
-        target_phase_start=0.340,
-        target_phase_end=0.347,
-        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": np.pi / 2},
-        target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
-        orientation_axis="y",
-      ),
-    ],
-  ),
-  MotionCfg(  # Right Far Kick
-    sampling_weight=1.0,
-    sub_targets=[
-      MotionGoalCfg(
-        goal_type="position",
-        goal_weight=100.0,
-        source_link="right_foot",
-        source_type="site",
-        target_pos_mean={"x": 0.5, "y": -1.2, "z": -0.70},
-        target_pos_std={"x": 0.10, "y": 0.20, "z": 0.01},
-        target_phase_start=0.404,
-        target_phase_end=0.411,
-      ),
-      MotionGoalCfg(
-        goal_type="velocity",
-        goal_weight=10.0,
-        source_link="right_foot",
-        source_type="site",
-        target_phase_start=0.399,
-        target_phase_end=0.416,
-        target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.0},
-        target_vel_std={"x": 0.0, "y": 0.0, "z": 0.0},
-      ),
-      MotionGoalCfg(
-        goal_type="orientation",
-        goal_weight=10.0,
-        source_link="right_foot",
-        source_type="site",
-        target_phase_start=0.404,
-        target_phase_end=0.411,
-        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": -np.pi / 2},
-        target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
-        orientation_axis="y",
-      ),
-    ],
-  ),
-    MotionCfg(  # Left Far Kick
-    sampling_weight=1.0,
-    sub_targets=[
-      MotionGoalCfg(
-        goal_type="position",
-        goal_weight=100.0,
-        source_link="left_foot",
-        source_type="site",
-        target_pos_mean={"x": 1.0, "y": 0.6, "z": -0.70},
-        target_pos_std={"x": 0.10, "y": 0.20, "z": 0.01},
-        target_phase_start=0.401,
-        target_phase_end=0.408,
-      ),
-      MotionGoalCfg(
-        goal_type="velocity",
-        goal_weight=10.0,
-        source_link="left_foot",
-        source_type="site",
-        target_phase_start=0.396,
-        target_phase_end=0.413,
-        target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.0},
-        target_vel_std={"x": 0.0, "y": 0.0, "z": 0.0},
-      ),
-      MotionGoalCfg(
-        goal_type="orientation",
-        goal_weight=10.0,
-        source_link="left_foot",
-        source_type="site",
-        target_phase_start=0.401,
-        target_phase_end=0.408,
-        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": np.pi / 2},
-        target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
-        orientation_axis="y",
-      ),
-    ],
-  ),
-
- 
-
-  # MotionCfg(  # Forehand
-  #   sampling_weight=1.0,
-  #   sub_targets=[
-  #     MotionGoalCfg(
-  #       goal_type="position",
-  #       goal_weight=100.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_pos_mean={"x": 0.5, "y": -0.6, "z": 0.0},
-  #       target_pos_std={"x": 0.10, "y": 0.20, "z": 0.20},
-  #       target_phase_start=0.306,
-  #       target_phase_end=0.313,
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="velocity",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.300,
-  #       target_phase_end=0.320,
-  #       target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.1},
-  #       target_vel_std={"x": 0.0, "y": 0.0, "z": 0.2},
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="orientation",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.306,
-  #       target_phase_end=0.313,
-  #       target_orientation_mean={"roll": np.pi / 8, "pitch": 0.0, "yaw": -np.pi / 2},
-  #       target_orientation_std={"roll": 0.1, "pitch": 0.0, "yaw": 0.0},
-  #       orientation_axis="y",
-  #     ),
-  #   ],
-  # ),
-  # MotionCfg(  # Backhand
-  #   sampling_weight=1.0,
-  #   sub_targets=[
-  #     MotionGoalCfg(
-  #       goal_type="position",
-  #       goal_weight=100.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_pos_mean={"x": 0.5, "y": 0.6, "z": 0.0},
-  #       target_pos_std={"x": 0.10, "y": 0.20, "z": 0.20},
-  #       target_phase_start=0.368,
-  #       target_phase_end=0.375,
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="velocity",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.360,
-  #       target_phase_end=0.380,
-  #       target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.1},
-  #       target_vel_std={"x": 0.0, "y": 0.0, "z": 0.2},
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="orientation",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.368,
-  #       target_phase_end=0.375,
-  #       target_orientation_mean={"roll": -np.pi / 8, "pitch": 0.0, "yaw": np.pi / 2},
-  #       target_orientation_std={"roll": 0.1, "pitch": 0.0, "yaw": 0.0},
-  #       orientation_axis="y",
-  #     ),
-  #   ],
-  # ),
-  # MotionCfg(  # Two Step Forehand
-  #   sampling_weight=1.0,
-  #   sub_targets=[
-  #     MotionGoalCfg(
-  #       goal_type="position",
-  #       goal_weight=100.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_pos_mean={"x": 0.5, "y": -1.2, "z": 0.0},
-  #       target_pos_std={"x": 0.10, "y": 0.20, "z": 0.20},
-  #       target_phase_start=0.394,
-  #       target_phase_end=0.403,
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="velocity",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.390,
-  #       target_phase_end=0.410,
-  #       target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.1},
-  #       target_vel_std={"x": 0.0, "y": 0.0, "z": 0.2},
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="orientation",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.394,
-  #       target_phase_end=0.403,
-  #       target_orientation_mean={"roll": np.pi / 8, "pitch": 0.0, "yaw": -np.pi / 2},
-  #       target_orientation_std={"roll": 0.1, "pitch": 0.0, "yaw": 0.0},
-  #       orientation_axis="y",
-  #     ),
-  #   ],
-  # ),
-  # MotionCfg(  # Two Step Backhand
-  #   sampling_weight=1.0,
-  #   sub_targets=[
-  #     MotionGoalCfg(
-  #       goal_type="position",
-  #       goal_weight=100.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_pos_mean={"x": 0.5, "y": 1.2, "z": 0.0},
-  #       target_pos_std={"x": 0.10, "y": 0.2, "z": 0.20},
-  #       target_phase_start=0.448,
-  #       target_phase_end=0.455,
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="velocity",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.440,
-  #       target_phase_end=0.460,
-  #       target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.1},
-  #       target_vel_std={"x": 0.0, "y": 0.0, "z": 0.2},
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="orientation",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.448,
-  #       target_phase_end=0.455,
-  #       target_orientation_mean={"roll": -np.pi / 8, "pitch": 0.0, "yaw": np.pi / 2},
-  #       target_orientation_std={"roll": 0.1, "pitch": 0.0, "yaw": 0.0},
-  #       orientation_axis="y",
-  #     ),
-  #   ],
-  # ),
-  # MotionCfg(  # Stepback Forehand
-  #   sampling_weight=1.0,
-  #   sub_targets=[
-  #     MotionGoalCfg(
-  #       goal_type="position",
-  #       goal_weight=100.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_pos_mean={"x": 0.5, "y": 0.1, "z": 0.0},
-  #       target_pos_std={"x": 0.10, "y": 0.20, "z": 0.20},
-  #       target_phase_start=0.333,
-  #       target_phase_end=0.340,
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="velocity",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.328,
-  #       target_phase_end=0.345,
-  #       target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.1},
-  #       target_vel_std={"x": 0.0, "y": 0.0, "z": 0.2},
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="orientation",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.333,
-  #       target_phase_end=0.340,
-  #       target_orientation_mean={"roll": np.pi / 8, "pitch": 0.0, "yaw": -np.pi / 2},
-  #       target_orientation_std={"roll": 0.1, "pitch": 0.0, "yaw": 0.0},
-  #       orientation_axis="y",
-  #     ),
-  #   ],
-  # ),
-  # MotionCfg(  # Stepback Backhand
-  #   sampling_weight=1.0,
-  #   sub_targets=[
-  #     MotionGoalCfg(
-  #       goal_type="position",
-  #       goal_weight=100.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_pos_mean={"x": 0.5, "y": -0.1, "z": 0.0},
-  #       target_pos_std={"x": 0.10, "y": 0.20, "z": 0.20},
-  #       target_phase_start=0.398,
-  #       target_phase_end=0.405,
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="velocity",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.390,
-  #       target_phase_end=0.410,
-  #       target_vel_mean={"x": 1.0, "y": 0.0, "z": 0.1},
-  #       target_vel_std={"x": 0.0, "y": 0.0, "z": 0.2},
-  #     ),
-  #     MotionGoalCfg(
-  #       goal_type="orientation",
-  #       goal_weight=10.0,
-  #       source_link="racket_contact",
-  #       source_type="site",
-  #       target_phase_start=0.398,
-  #       target_phase_end=0.405,
-  #       target_orientation_mean={"roll": -np.pi / 8, "pitch": 0.0, "yaw": np.pi / 2},
-  #       target_orientation_std={"roll": 0.1, "pitch": 0.0, "yaw": 0.0},
-  #       orientation_axis="y",
-  #     ),
-  #   ],
-  # ),
-]
+# Edit motion specs in motion_lib.py; add/remove motions via motion_sets/*.toml.
+MOTIONS: list[MotionCfg] = list(MOTION_LIB.values())
 
 
-def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
+def make_multi_target_tracking_env_cfg(
+  motions: list[MotionCfg] | None = None,
+) -> ManagerBasedRlEnvCfg:
   """Create multi-target tracking task configuration.
 
   Extends the base tracking task with multi-motion support and per-motion
   target positions that the specified source links must reach during
   configurable phase windows.
 
+  Args:
+    motions: Subset of motions to use. Defaults to all MOTIONS when None.
   """
+  _motions = motions if motions is not None else MOTIONS
 
   ##
   # Observations
@@ -520,8 +151,8 @@ def make_multi_target_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
       motion_files=[],
       anchor_body_name="",
       body_names=(),
-      motion_sampling_weights=[m.sampling_weight for m in MOTIONS],
-      motion_target_cfgs=MOTIONS,
+      motion_sampling_weights=[m.sampling_weight for m in _motions],
+      motion_target_cfgs=_motions,
     )
   }
 

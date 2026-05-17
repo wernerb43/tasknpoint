@@ -18,6 +18,7 @@ from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_run
 from mjlab.utils.lab_api.math import quat_apply
 from tasknpoint_project.goal_cond_tracking.mdp import MultiTargetMotionCommandCfg
 from tasknpoint_project.goal_cond_tracking.mdp.commands import MultiTargetMotionCommand
+from tasknpoint_project.goal_cond_tracking.motion_set import filter_motion_cmd_cfg
 from tasknpoint_project.goal_cond_tracking.mdp.metrics import compute_goal_position_error
 from mjlab.utils.os import get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
@@ -119,13 +120,17 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
   if cfg.registry_name:
     registry_names = [r.strip() for r in cfg.registry_name.split(",")]
     motion_files: list[str] = []
+    motion_names: list[str] = []
     for rn in registry_names:
       if ":" not in rn:
         rn = rn + ":latest"
       art = api.artifact(rn)
-      motion_files.append(str(Path(art.download()) / "motion.npz"))
+      src = api.artifact(art.source_qualified_name)
+      motion_files.append(str(Path(src.download()) / "motion.npz"))
+      motion_names.append(rn.split("/")[-1].split(":")[0])
       print(f"[INFO] Downloaded motion: {rn} -> {motion_files[-1]}")
     motion_cmd_cfg.motion_files = motion_files
+    filter_motion_cmd_cfg(motion_cmd_cfg, motion_names)
   else:
     run = api.run(cfg.wandb_run_path)
     arts = [a for a in run.used_artifacts() if a.type == "motions"]

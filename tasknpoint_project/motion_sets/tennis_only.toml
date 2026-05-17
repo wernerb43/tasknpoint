@@ -1,0 +1,29 @@
+# Tennis stroke variants only (forehand/backhand + footwork variants).
+
+[registry]
+train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
+eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"
+
+[[motions]]
+name    = "forehand"
+enabled = true
+
+[[motions]]
+name    = "backhand"
+enabled = true
+
+[[motions]]
+name    = "two_step_forehand"
+enabled = true
+
+[[motions]]
+name    = "two_step_backhand"
+enabled = true
+
+[[motions]]
+name    = "stepback_forehand"
+enabled = true
+
+[[motions]]
+name    = "stepback_backhand"
+enabled = true

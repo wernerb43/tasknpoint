@@ -85,16 +85,20 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
       registry_name = cast(str, cfg.registry_name)
       registry_names = [r.strip() for r in registry_name.split(",")]
       import wandb
+      from tasknpoint_project.goal_cond_tracking.motion_set import filter_motion_cmd_cfg
 
       api = wandb.Api()
       motion_files: list[str] = []
+      motion_names: list[str] = []
       for rn in registry_names:
         if ":" not in rn:
           rn = rn + ":latest"
         artifact = api.artifact(rn)
         motion_files.append(str(Path(artifact.download()) / "motion.npz"))
+        motion_names.append(rn.split("/")[-1].split(":")[0])
         print(f"[INFO] Downloaded motion: {rn} -> {motion_files[-1]}")
       motion_cmd.motion_files = motion_files
+      filter_motion_cmd_cfg(motion_cmd, motion_names)
     else:
       raise ValueError(
         "For multi-target tracking tasks, provide either:\n"

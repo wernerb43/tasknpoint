@@ -1,0 +1,21 @@
+# Kicks-only motion subset.
+
+[registry]
+train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
+eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"
+
+[[motions]]
+name    = "right_kick"
+enabled = true
+
+[[motions]]
+name    = "left_kick"
+enabled = true
+
+[[motions]]
+name    = "right_far_kick"
+enabled = true
+
+[[motions]]
+name    = "left_far_kick"
+enabled = true

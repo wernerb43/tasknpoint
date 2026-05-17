@@ -95,6 +95,7 @@ class MotionGoalCfg:  # this indicates the conditioned goal(s) in each motion
 class MotionCfg:
   """Per-motion target configuration — a list of sub-targets, each active during its own phase window."""
 
+  name: str = ""
   sub_targets: list[MotionGoalCfg] = field(default_factory=list)
   sampling_weight: float = 1.0  # how often we sample this motion
 
