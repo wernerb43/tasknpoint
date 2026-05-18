@@ -285,9 +285,9 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
   metrics = {
     "success_rate": success.float().mean().item(),
     "min_goal_pos_error": mean_min_goal_pos_error,
-    "std_goal_pos_error": min_goal_pos_error.std().item(),
+    "std_goal_pos_error": min_goal_pos_error[success].std().item(),
     "goal_phase_success_rate": goal_phase_success_rate,
-    "std_phase_time_offset_s": time_offset_s.std().item(),
+    "std_phase_time_offset_s": time_offset_s[success].std().item(),
   }
 
   print("\n" + "=" * 50)
