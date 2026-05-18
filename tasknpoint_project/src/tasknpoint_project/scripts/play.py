@@ -22,7 +22,8 @@ from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 @dataclass(frozen=True)
 class PlayConfig:
   agent: Literal["zero", "random", "trained"] = "trained"
-  registry_name: str | None = None
+  motion_config: Path | None = None
+  """Path to a motion set TOML. Resolves eval registry and robot XML when provided."""
   wandb_run_path: str | None = None
   wandb_checkpoint_name: str | None = None
   """Optional checkpoint name within the W&B run to load (e.g. 'model_4000.pt')."""
@@ -74,6 +75,21 @@ def run_play(task_id: str, cfg: PlayConfig):
     motion_cmd = env_cfg.commands["motion"]
     assert isinstance(motion_cmd, MultiTargetMotionCommandCfg)
 
+    resolved_registry_name: str | None = None
+    if cfg.motion_config is not None:
+      from tasknpoint_project.motion_sets.motion_set import MotionSet
+      motion_set = MotionSet.from_toml(cfg.motion_config)
+      resolved_registry_name = motion_set.eval_registry()
+      if motion_set.robot_xml is not None:
+        import mujoco
+        _xml = motion_set.robot_xml
+        robot_entity = env_cfg.scene.entities.get("robot")
+        if robot_entity is not None:
+          robot_entity.spec_fn = lambda: mujoco.MjSpec.from_file(_xml)
+        print(f"[INFO]: Robot XML from motion config: {_xml}")
+    else:
+      motion_set = None
+
     if motion_cmd.motion_files:
       # Already resolved (e.g. by the tracker block above).
       pass
@@ -86,40 +102,49 @@ def run_play(task_id: str, cfg: PlayConfig):
       motion_cmd.motion_files = files
       print(f"[INFO]: Using local motion files: {files}")
     elif DUMMY_MODE:
-      if not cfg.registry_name:
+      if not resolved_registry_name:
         raise ValueError(
           "Multi-target tracking tasks require either:\n"
           "  --motion-file f1.npz,f2.npz (comma-separated local files)\n"
-          "  --registry-name name1,name2 (comma-separated WandB registry names)"
+          "  --motion-config path/to/config.toml (resolves eval registry from TOML)"
         )
       import wandb
 
       api = wandb.Api()
-      registry_names = [r.strip() for r in cfg.registry_name.split(",")]
+      registry_names = [r.strip() for r in resolved_registry_name.split(",")]
       motion_files: list[str] = []
+      motion_names: list[str] = []
       for rn in registry_names:
         if ":" not in rn:
           rn = rn + ":latest"
         artifact = api.artifact(rn)
         motion_files.append(str(Path(artifact.download()) / "motion.npz"))
+        motion_names.append(rn.split("/")[-1].split(":")[0])
         print(f"[INFO]: Downloaded motion: {rn} -> {motion_files[-1]}")
       motion_cmd.motion_files = motion_files
+      if motion_set is not None:
+        from tasknpoint_project.motion_sets.motion_set import filter_motion_cmd_cfg
+        filter_motion_cmd_cfg(motion_cmd, motion_set.enabled_names)
     else:
       # Trained mode: resolve motion artifacts from the W&B training run.
       import wandb
 
       api = wandb.Api()
-      if cfg.registry_name:
-        # Explicit comma-separated registry names override artifact resolution.
-        registry_names = [r.strip() for r in cfg.registry_name.split(",")]
+      if resolved_registry_name:
+        registry_names = [r.strip() for r in resolved_registry_name.split(",")]
         motion_files = []
+        motion_names = []
         for rn in registry_names:
           if ":" not in rn:
             rn = rn + ":latest"
           artifact = api.artifact(rn)
           motion_files.append(str(Path(artifact.download()) / "motion.npz"))
+          motion_names.append(rn.split("/")[-1].split(":")[0])
           print(f"[INFO]: Downloaded motion: {rn} -> {motion_files[-1]}")
         motion_cmd.motion_files = motion_files
+        if motion_set is not None:
+          from tasknpoint_project.motion_sets.motion_set import filter_motion_cmd_cfg
+          filter_motion_cmd_cfg(motion_cmd, motion_set.enabled_names)
       elif cfg.wandb_run_path is not None:
         wandb_run = api.run(str(cfg.wandb_run_path))
         arts = [a for a in wandb_run.used_artifacts() if a.type == "motions"]
@@ -134,7 +159,7 @@ def run_play(task_id: str, cfg: PlayConfig):
         raise ValueError(
           "Multi-target tracking tasks require motion files. Provide one of:\n"
           "  --motion-file f1.npz,f2.npz (comma-separated local files)\n"
-          "  --registry-name name1,name2 (comma-separated WandB registry names)\n"
+          "  --motion-config path/to/config.toml (resolves eval registry from TOML)\n"
           "  --wandb-run-path entity/project/run_id (resolve from training run)"
         )
 

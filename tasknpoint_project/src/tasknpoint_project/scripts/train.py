@@ -6,7 +6,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import tyro
 
@@ -25,9 +25,8 @@ from mjlab.utils.wrappers import VideoRecorder
 class TrainConfig:
   env: ManagerBasedRlEnvCfg
   agent: RslRlBaseRunnerCfg
-  registry_name: str | None = None
   motion_config: Path | None = None
-  """Path to a motion set TOML. Drives --registry-name and robot XML when provided."""
+  """Path to a motion set TOML. Drives registry and robot XML."""
   video: bool = False
   video_length: int = 200
   video_interval: int = 2000
@@ -93,10 +92,7 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
           robot_entity.spec_fn = lambda: mujoco.MjSpec.from_file(_xml)
         print(f"[INFO] Robot XML from motion config: {_xml}")
 
-      if cfg.registry_name is None:
-        registry_name = motion_set.train_registry()
-    else:
-      registry_name = cast(str, cfg.registry_name) if cfg.registry_name else None
+      registry_name = motion_set.train_registry()
 
     if motion_cmd.motion_files and all(
       Path(f).exists() for f in motion_cmd.motion_files
@@ -123,7 +119,6 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
       raise ValueError(
         "For multi-target tracking tasks, provide either:\n"
         "  --motion-config path/to/config.toml (reads registry + robot XML from TOML)\n"
-        "  --registry-name name1,name2,... (comma-separated WandB registry names)\n"
         "  --env.commands.motion.motion-files '[f1.npz,f2.npz]' (local files)"
       )
 
