@@ -1,0 +1,32 @@
+# Tennis stroke variants only (forehand/backhand + footwork variants).
+
+[robot]
+xml = "robots/g1_tennis_27dof.xml"
+
+[registry]
+train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
+eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"
+
+[[motions]]
+name    = "forehand_10hz"
+enabled = true
+
+[[motions]]
+name    = "backhand_10hz"
+enabled = true
+
+[[motions]]
+name    = "two_step_forehand_10hz"
+enabled = true
+
+[[motions]]
+name    = "two_step_backhand_10hz"
+enabled = true
+
+[[motions]]
+name    = "stepback_forehand_10hz"
+enabled = true
+
+[[motions]]
+name    = "stepback_backhand_10hz"
+enabled = true
