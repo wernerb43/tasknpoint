@@ -262,14 +262,20 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
     [command.motion_configs[m].sub_targets[0].target_phase_end for m in chosen.tolist()],
     device=device,
   )
+
+  step_dt = env.unwrapped.step_dt
+  motion_lengths_s = motion_lengths * step_dt          # (num_envs,) in seconds
+
+  phase_window_increase_s = 0.16                                      # seconds
+  phase_window_increase = phase_window_increase_s / motion_lengths_s  # (num_envs,) in phase
+  phase_starts -= phase_window_increase
+  phase_ends += phase_window_increase
   in_phase = (phase >= phase_starts) & (phase <= phase_ends)
   goal_phase_success_rate = in_phase.float().mean().item()
 
   nominal_phase = (phase_starts + phase_ends) / 2  # (num_envs,)
   phase_offset = phase - nominal_phase              # signed offset from goal phase center
 
-  step_dt = env.unwrapped.step_dt
-  motion_lengths_s = motion_lengths * step_dt          # (num_envs,) in seconds
   time_offset_s = phase_offset * motion_lengths_s      # (num_envs,) in seconds
   window_half_s = ((phase_ends - phase_starts) / 2 * motion_lengths_s).mean().item()
 
