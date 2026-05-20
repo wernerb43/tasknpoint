@@ -27,6 +27,7 @@ from utils.math_utils import (
     quat_multiply,
     quat_to_rotation_matrix,
     quat_to_rpy,
+    rpy_to_quat,
 )
 
 # Motion names for display — kept in sync with the config motion order.
