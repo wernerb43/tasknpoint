@@ -1117,14 +1117,14 @@ class MultiTargetMotionCommand(CommandTerm):
 
     newly_paused = env_ids_at_end[~self.is_paused[env_ids_at_end]]
     if len(newly_paused) > 0:
-      self._paused_body_pos_w[newly_paused] = self.robot.data.body_link_pos_w[
-        newly_paused
-      ][:, self.body_indexes]
-      self._paused_body_quat_w[newly_paused] = self.robot.data.body_link_quat_w[
-        newly_paused
-      ][:, self.body_indexes]
-      self._paused_joint_pos[newly_paused] = self.robot.data.joint_pos[newly_paused]
-      self._paused_joint_vel[newly_paused] = self.robot.data.joint_vel[newly_paused]
+      motion_ids = self.which_motion[newly_paused]
+      self._paused_body_pos_w[newly_paused] = (
+        self._stacked_body_pos_w[motion_ids, 0]
+        + self._env.scene.env_origins[newly_paused, None, :]
+      )
+      self._paused_body_quat_w[newly_paused] = self._stacked_body_quat_w[motion_ids, 0]
+      self._paused_joint_pos[newly_paused] = self._stacked_joint_pos[motion_ids, 0]
+      self._paused_joint_vel[newly_paused] = self._stacked_joint_vel[motion_ids, 0]
 
     self.is_paused[:] = False
     self.is_paused[env_ids_at_end] = True
@@ -1329,8 +1329,8 @@ class MultiTargetMotionCommandCfg(CommandTermCfg):
   """Per-motion target configurations, each containing one or more sub-targets."""
 
   between_motion_pause_length: float = 0.3
-  """Seconds the reference is held frozen at the final motion pose before a
-  new motion is sampled."""
+  """Seconds the reference is held frozen at the initial frame of the current
+  motion before a new motion is sampled."""
 
   @dataclass
   class VizCfg:
