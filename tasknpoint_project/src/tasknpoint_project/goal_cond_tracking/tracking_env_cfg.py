@@ -251,7 +251,7 @@ def make_multi_target_tracking_env_cfg(
       weight=1.0,  # 100 for fast motions like baseball swing, 10 for slow motions like catch
       params={
         "target_command_name": "motion",
-        "std": 0.3,
+        "std": 0.2,
       },
     ),
     "target_orientation_reward": RewardTermCfg(
@@ -259,7 +259,7 @@ def make_multi_target_tracking_env_cfg(
       weight=1.0,
       params={
         "target_command_name": "motion",
-        "std": 1.0,
+        "std": 0.5,
       },
     ),
     "target_velocity_reward": RewardTermCfg(
@@ -267,7 +267,7 @@ def make_multi_target_tracking_env_cfg(
       weight=1.0,
       params={
         "target_command_name": "motion",
-        "std": 1.0,
+        "std": 0.5,
       },
     ),
   }
