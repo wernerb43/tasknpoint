@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -25,7 +26,7 @@ from mjlab.viewer.viewer_config import ViewerConfig
 
 # Each entry is (name, phase) where name is a body or site name and phase is in [0, 1].
 PROBE_POINTS: list[tuple[str, float]] = [
-  ("right_foot", 0.404),
+  ("racket_contact", 0.381),
 ]
 
 
@@ -409,6 +410,7 @@ def main(
   device: str = "cuda:0",
   render: bool = False,
   line_range: tuple[int, int] | None = None,
+  motion_config: Path | None = None,
 ):
   """Replay motion from CSV file and output to npz file.
 
@@ -420,6 +422,7 @@ def main(
     device: Device to use.
     render: Whether to render the simulation and save a video.
     line_range: Range of lines to process from the CSV file.
+    motion_config: Path to a motion set TOML. Resolves robot XML when provided.
   """
   if device.startswith("cuda") and not torch.cuda.is_available():
     print("[WARNING]: CUDA is not available. Falling back to CPU. This may be slow.")
@@ -428,7 +431,19 @@ def main(
   sim_cfg = SimulationCfg()
   sim_cfg.mujoco.timestep = 1.0 / output_fps
 
-  scene = Scene(unitree_g1_multi_target_tracking_env_cfg().scene, device=device)
+  env_cfg = unitree_g1_multi_target_tracking_env_cfg()
+  if motion_config is not None:
+    from tasknpoint_project.motion_sets.motion_set import MotionSet
+    import mujoco
+    motion_set = MotionSet.from_toml(motion_config)
+    if motion_set.robot_xml is not None:
+      _xml = motion_set.robot_xml
+      robot_entity = env_cfg.scene.entities.get("robot")
+      if robot_entity is not None:
+        robot_entity.spec_fn = lambda: mujoco.MjSpec.from_file(_xml)
+      print(f"[INFO]: Robot XML from motion config: {_xml}")
+
+  scene = Scene(env_cfg.scene, device=device)
   model = scene.compile()
 
   sim = Simulation(num_envs=1, cfg=sim_cfg, model=model, device=device)
