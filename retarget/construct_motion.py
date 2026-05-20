@@ -110,12 +110,12 @@ if __name__ == "__main__":
 
     pos_offset = np.array([0.0, 0.0, INITIAL_ROBOT_HEIGHT]) - first_frame_qpos[:3]
 
-    initial_quat_wxyz = first_frame_qpos[3:7]
-    initial_quat_xyzw = initial_quat_wxyz[[1, 2, 3, 0]]
-    rot_offset_rpy = R.from_quat(initial_quat_xyzw).inv().as_euler("xyz")
+    initial_quat_xyzw = first_frame_qpos[[4, 5, 6, 3]]  # wxyz -> xyzw
+    offset_rot = R.from_quat(initial_quat_xyzw).inv()
+    start_pos = first_frame_qpos[:3].copy()
 
     print(f"Calculated pos_offset: {pos_offset}")
-    print(f"Calculated rot_offset_rpy: {rot_offset_rpy}")
+    print(f"Calculated offset_rot: {offset_rot.as_euler('xyz', degrees=True)} deg")
 
     if args.save_path is not None:
         save_dir = os.path.dirname(args.save_path)
@@ -127,23 +127,30 @@ if __name__ == "__main__":
     while True:
         qpos = retarget.retarget(smplx_data_frames[i])
 
-        adjusted_root_pos = qpos[:3] + pos_offset
+        rotated_delta = offset_rot.apply(qpos[:3] - start_pos)
+        adjusted_root_pos = rotated_delta + np.array([0.0, 0.0, INITIAL_ROBOT_HEIGHT])
 
         root_rot_xyzw = qpos[[4, 5, 6, 3]]  # wxyz -> xyzw
-        offset_quat_xyzw = R.from_euler("xyz", rot_offset_rpy).as_quat()
-        result_xyzw = (R.from_quat(root_rot_xyzw) * R.from_quat(offset_quat_xyzw)).as_quat()
+        result_xyzw = (offset_rot * R.from_quat(root_rot_xyzw)).as_quat()
         adjusted_root_rot = result_xyzw[[3, 0, 1, 2]]  # xyzw -> wxyz
 
         rel = i - start_frame
         robot_motion_viewer.current_frame = rel
         print(f"\rFrame {rel:>5d}/{len(smplx_data_frames) - start_frame}  t={rel / aligned_fps:.3f}s", end="", flush=True)
 
+        transformed_human_data = {
+            body_name: (
+                offset_rot.apply(pos - start_pos) + np.array([0.0, 0.0, INITIAL_ROBOT_HEIGHT]),
+                (offset_rot * R.from_quat(rot[[1, 2, 3, 0]])).as_quat()[[3, 0, 1, 2]],
+            )
+            for body_name, (pos, rot) in retarget.scaled_human_data.items()
+        }
+
         robot_motion_viewer.step(
             root_pos=adjusted_root_pos,
             root_rot=adjusted_root_rot,
             dof_pos=qpos[7:],
-            human_motion_data=retarget.scaled_human_data,
-            human_pos_offset=pos_offset,
+            human_motion_data=transformed_human_data,
             show_human_body_name=False,
             rate_limit=args.rate_limit,
             follow_camera=False,
