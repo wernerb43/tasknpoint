@@ -463,8 +463,9 @@ class MultiTargetMotionCommand(CommandTerm):
     self.kernel = self.kernel / self.kernel.sum()
 
     # Between-motion pause.
-    self.between_motion_pause_length = self.cfg.between_motion_pause_length
+    self.between_motion_pause_range = self.cfg.between_motion_pause_range
     self.between_motion_pause_time = torch.zeros(self.num_envs, device=self.device)
+    self._sampled_pause_lengths = torch.zeros(self.num_envs, device=self.device)
     self.is_paused = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
     num_bodies = len(self.cfg.body_names)
     num_joints = self.robot.data.joint_pos.shape[-1]
@@ -1117,6 +1118,10 @@ class MultiTargetMotionCommand(CommandTerm):
 
     newly_paused = env_ids_at_end[~self.is_paused[env_ids_at_end]]
     if len(newly_paused) > 0:
+      lo, hi = self.between_motion_pause_range
+      self._sampled_pause_lengths[newly_paused] = (
+        torch.rand(len(newly_paused), device=self.device) * (hi - lo) + lo
+      )
       motion_ids = self.which_motion[newly_paused]
       self._paused_body_pos_w[newly_paused] = (
         self._stacked_body_pos_w[motion_ids, 0]
@@ -1130,7 +1135,8 @@ class MultiTargetMotionCommand(CommandTerm):
     self.is_paused[env_ids_at_end] = True
     self.between_motion_pause_time[env_ids_at_end] += self._env.step_dt
     env_ids_to_continue = env_ids_at_end[
-      self.between_motion_pause_time[env_ids_at_end] >= self.between_motion_pause_length
+      self.between_motion_pause_time[env_ids_at_end]
+      >= self._sampled_pause_lengths[env_ids_at_end]
     ]
     self.between_motion_pause_time[env_ids_to_continue] = 0.0
 
@@ -1328,9 +1334,8 @@ class MultiTargetMotionCommandCfg(CommandTermCfg):
   motion_target_cfgs: list[MotionCfg] = field(default_factory=list)
   """Per-motion target configurations, each containing one or more sub-targets."""
 
-  between_motion_pause_length: float = 0.3
-  """Seconds the reference is held frozen at the initial frame of the current
-  motion before a new motion is sampled."""
+  between_motion_pause_range: tuple[float, float] = (0.0, 1.0)
+  """(min, max) seconds for the between-motion pause, sampled uniformly per env."""
 
   @dataclass
   class VizCfg:
