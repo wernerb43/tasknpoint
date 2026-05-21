@@ -12,21 +12,30 @@ xvfb-run -a python retarget/construct_motion.py \
 
 # to visualize:
 xvfb-run -a python retarget/construct_motion.py \
-    --smplx_file /mnt/datasets/robo_results/retarget_inputs/pickup_bench_to_floor.npz \
+    --smplx_file /mnt/datasets/robo_results/retarget_inputs/03_03_2026_16_30_court6/backhand_Andrew_Zabelo_03_03_2026_16_32_26_000_6_E_01_17_41_03_481_19112_19254_pid21.npz \
     --robot unitree_g1 \
-    --save_path retarget/retarget_outputs/pickup_bench_to_floor \
+    --save_path retarget/retarget_outputs/robo_forehand \
     --robot_xml robots/g1_27dof.xml \
     --rate_limit \
     --record_video 
 
 xvfb-run -a python retarget/construct_motion.py \
-    --smplx_file /mnt/datasets/robo_results/retarget_inputs/03_03_2026_16_30_court6/backhand_Marco_Yang_03_03_2026_16_32_26_000_6_E_01_17_41_03_481_18631_18784_pid23.npz \
+    --smplx_file /mnt/datasets/robo_results/retarget_inputs/pickup_bench_to_floor.npz \
     --robot unitree_g1 \
-    --save_path retarget/retarget_outputs/backhand \
+    --save_path retarget/retarget_outputs/pickup_bench_to_floor \
     --robot_xml robots/g1_27dof.xml \
     --rate_limit \
     --record_video
 
+xvfb-run -a python retarget/construct_motion.py \
+    --smplx_file /mnt/datasets/robo_results/retarget_inputs/pickup_bench_to_floor_test_new.npz \
+    --robot unitree_g1 \
+    --save_path retarget/retarget_outputs/pickup_bench_to_floor_test_new \
+    --robot_xml robots/g1_27dof.xml \
+    --rate_limit \
+    --record_video
+
+xvfb-run -a python retarget/construct_motion.py     --smplx_file /mnt/datasets/robo_results/retarget_inputs/pickup_bench_to_floor.npz     --robot unitree_g1     --save_path retarget/retarget_outputs/pickup_bench_to_floor     --robot_xml robots/g1_27dof.xml     --rate_limit     --record_video --follow_camera
 
 ```
 
@@ -41,8 +50,8 @@ MUJOCO_GL=egl uv run --directory tasknpoint_project python \
     --render False
 
 MUJOCO_GL=egl uv run python src/tasknpoint_project/scripts/csv_to_npz.py \
-    --input-file ../retarget/retarget_outputs/one_step_forehand.csv \
-    --output-name one_step_forehand \
+    --input-file ../retarget/retarget_outputs/pickup_bench_to_floor.csv \
+    --output-name pickup_bench_to_floor \
     --input-fps 30 \
     --output-fps 50 \
     --render False
@@ -81,6 +90,11 @@ uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
 uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/kicks_only.toml \
     --env.scene.num-envs 4096
+
+# box grab:
+uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+    --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/box_grab.toml \
+    --env.scene.num-envs 4096
 ```
 
 To see which motions a set contains:
@@ -103,7 +117,7 @@ uv run python -m tasknpoint_project.goal_cond_tracking.scripts.evaluate \
 
 uv run python -m tasknpoint_project.goal_cond_tracking.scripts.evaluate \
     Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
-    --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/3pft2sgz \
+    --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/48cdla54 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only.toml \
     --target-x-min 0.4 --target-x-max 0.6 \
     --target-y-min -2.0 --target-y-max 2.0 \
@@ -112,3 +126,18 @@ uv run python -m tasknpoint_project.goal_cond_tracking.scripts.evaluate \
 
 The `--eval` flag uses the eval registry prefix (`wandb-registry-motions`).
 Omitting it uses the train prefix (`csv_to_npz`).
+
+## Play script:
+
+```
+uv run play Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+    --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/i4tr5j7v \
+    --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only_fast.toml
+
+```
+
+To run with VISER!:
+
+```
+ uv run play-viser Mjlab-MultiTarget-Tracking-Flat-Unitree-G1     --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/0ulgzbgg     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/box_grab.toml
+```
