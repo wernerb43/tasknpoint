@@ -28,6 +28,7 @@ sys.path.append(ROOT_DIR)
 
 DEPLOY_DIR = str(Path(__file__).resolve().parents[1])
 REPO_ROOT = str(Path(__file__).resolve().parents[2])
+sys.path.append(DEPLOY_DIR)
 
 # custom imports
 from utils.policy import Policy

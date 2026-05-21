@@ -25,6 +25,9 @@ import sys
 ROOT_DIR = os.getenv("DEPLOY_ROOT_DIR")
 sys.path.append(ROOT_DIR)
 
+DEPLOY_DIR = str(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(DEPLOY_DIR)
+
 
 ############################################################################
 # ESTIMATOR NODE
@@ -60,7 +63,7 @@ class BallEstimatorNode(Node):
     self.kf_last_time: float | None = None
 
     config_path = os.path.join(
-      os.path.dirname(__file__), "..", "configs", "g1_29dof_tasknpoint_multimotion.yaml"
+      os.path.dirname(__file__), "..", "configs", "g1_tasknpoint.yaml"
     )
     with open(config_path) as f:
       config = yaml.safe_load(f)
@@ -88,7 +91,7 @@ class BallEstimatorNode(Node):
     self.ball_trajectory_pub = self.create_publisher(
       Float32MultiArray, "/ball/trajectory", 10
     )
-    # self.which_motion = self.create_publisher(Float64, "/ball/which_motion", 10)
+    self.which_motion = self.create_publisher(Float64, "/ball/which_motion", 10)
 
     self.create_timer(self.dt, self.timer_callback)
 
@@ -205,7 +208,7 @@ class BallEstimatorNode(Node):
 
       # TODO OFFSETS HERE ARE HACKED, FIND OUT WHY AND FIX PROPERLY
       self.target_pos[2] += (
-        0.13  # this is a hack to make the target point slightly above the ball, which seems to help with hitting
+        0.0  # this is a hack to make the target point slightly above the ball, which seems to help with hitting
       )
 
   def estimate_ball_trajectory(self):
@@ -270,7 +273,7 @@ class BallEstimatorNode(Node):
     self.publish_pose()
     self.publish_target_time()
     self.publish_trajectory()
-    # self.publish_which_motion()
+    self.publish_which_motion()
 
   def publish_pose(self):
     msg = PoseStamped()
@@ -296,10 +299,10 @@ class BallEstimatorNode(Node):
     msg.data = self.ball_trajectory_positions.flatten().tolist()
     self.ball_trajectory_pub.publish(msg)
 
-  # def publish_which_motion(self):
-  #   msg = Float64()
-  #   msg.data = float(self.target_motion_idx)
-  #   self.which_motion.publish(msg)
+  def publish_which_motion(self):
+    msg = Float64()
+    msg.data = float(self.target_motion_idx)
+    self.which_motion.publish(msg)
 
 
 ############################################################################

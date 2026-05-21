@@ -25,6 +25,10 @@ import sys
 ROOT_DIR = os.getenv("DEPLOY_ROOT_DIR")
 sys.path.append(ROOT_DIR)
 
+DEPLOY_DIR = str(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(DEPLOY_DIR)
+
+# TODO add extended kalman filter for pelvis estimation
 
 ############################################################################
 # ESTIMATOR NODE
