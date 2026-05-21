@@ -7,7 +7,7 @@ import numpy as np
 
 from tasknpoint_project.goal_cond_tracking.mdp import MotionCfg, MotionGoalCfg
 
-vel_ori_window = 0.01 # phase window before and after position window
+vel_ori_window = 0.004 # phase window before and after position window
 
 
 MOTION_LIB: dict[str, MotionCfg] = {
@@ -793,6 +793,98 @@ MOTION_LIB: dict[str, MotionCfg] = {
         target_phase_end=0.405 + vel_ori_window,
         target_orientation_mean={"roll": -np.pi / 8, "pitch": 0.0, "yaw": np.pi / 2},
         target_orientation_std={"roll": 0.1, "pitch": 0.0, "yaw": 0.0},
+        orientation_axis="y",
+      ),
+    ],
+  ),
+
+  #########################################
+  #                                       #
+  #              box pickups              #
+  #                                       #
+  #########################################
+
+
+    "pickup_bench_to_floor": MotionCfg(
+    name="pickup_bench_to_floor",
+    sampling_weight=1.0,
+    sub_targets=[
+      # Right hand when box gets grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="right_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.7876, "y": 0.1359, "z": -0.328},
+        target_pos_std={"x": 0.05, "y": 0.05, "z": 0.05},
+        target_phase_start=0.412 - vel_ori_window,
+        target_phase_end=0.412 + vel_ori_window,
+      ),
+      # Left hand when box is grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="left_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.762, "y": 0.422, "z": -0.282},
+        target_pos_std={"x": 0.05, "y": 0.05, "z": 0.05},
+        target_phase_start=0.412 - vel_ori_window,
+        target_phase_end=0.412 + vel_ori_window,
+      ),
+      # Left palm tracks right palm live during the hold phase, offset by the grip width.
+      # This prevents the box from being "dropped" by the left hand drifting away.
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=1.0,
+        source_link="left_palm",
+        source_type="site",
+        target_link="right_palm",   # dynamic: follows right palm's live position
+        target_type="site",
+        target_pos_mean={"x": -0.026, "y": 0.286, "z": 0.046},  # left - right offset, anchor frame
+        target_pos_std={"x": 0.02, "y": 0.02, "z": 0.02},
+        target_phase_start=0.412,   # from when the box is grabbed
+        target_phase_end=0.904,     # until the box is set down
+      ),
+      MotionGoalCfg(
+        goal_type="velocity",
+        goal_weight=0.0,
+        source_link="right_palm",
+        source_type="site",
+        target_phase_start=0.405, # a bit before when the box was grabbed
+        target_phase_end=0.489, # this is when the person stood up
+        target_vel_mean={"x": 0.0, "y": 0.5, "z": 0.0}, # pushing on the box to the left (y positive)
+        target_vel_std={"x": 0.0, "y": 0.2, "z": 0.0},
+      ),
+      MotionGoalCfg(
+        goal_type="velocity",
+        goal_weight=0.0,
+        source_link="left_palm",
+        source_type="site",
+        target_phase_start=0.405, # a bit before when the box was grabbed
+        target_phase_end=0.489, # this is when the person stood up
+        target_vel_mean={"x": 0.0, "y": -0.5, "z": 0.0}, # pushing on the box to the right (y negative)
+        target_vel_std={"x": 0.0, "y": 0.0, "z": 0.0},
+      ),
+      MotionGoalCfg(
+        goal_type="orientation",
+        goal_weight=0.0,
+        source_link="right_palm",
+        source_type="site",
+        target_phase_start=0.359, # a bit before when the box was grabbed
+        target_phase_end=0.489, # this is when the person stood up
+        target_orientation_mean={"roll": -0.444, "pitch": 0.531, "yaw": 0.121},  # this is the init frame orientation at the box grab frame
+        target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.1},    # small std dev
+        orientation_axis="y",
+      ),
+      MotionGoalCfg(
+        goal_type="orientation",
+        goal_weight=0.0,
+        source_link="left_palm",
+        source_type="site",
+        target_phase_start=0.359, # a bit before when the box was grabbed
+        target_phase_end=0.489, # this is when the person stood up
+        target_orientation_mean={"roll": -0.208, "pitch": 0.4220, "yaw": 0.232},  # this is the init frame orientation at the box grab frame
+        target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.1},    # small std dev
         orientation_axis="y",
       ),
     ],

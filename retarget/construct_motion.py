@@ -70,7 +70,8 @@ if __name__ == "__main__":
     parser.add_argument("--loop", default=False, action="store_true")
     parser.add_argument("--record_video", default=False, action="store_true")
     parser.add_argument("--rate_limit", default=False, action="store_true")
-    # parser.add_argument("--cam_distance_scale", type=float, default=1.5)
+    parser.add_argument("--cam_distance_scale", type=float, default=1.5)
+    parser.add_argument("--follow_camera", default=False, action="store_true")
     args = parser.parse_args()
 
     if args.robot_xml is not None:
@@ -153,7 +154,7 @@ if __name__ == "__main__":
             human_motion_data=transformed_human_data,
             show_human_body_name=False,
             rate_limit=args.rate_limit,
-            follow_camera=False,
+            follow_camera=args.follow_camera,
         )
 
         if args.save_path is not None:
