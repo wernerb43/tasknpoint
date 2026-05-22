@@ -28,14 +28,15 @@ xvfb-run -a python retarget/construct_motion.py \
     --record_video
 
 xvfb-run -a python retarget/construct_motion.py \
-    --smplx_file /mnt/datasets/robo_results/retarget_inputs/pickup_bench_to_floor_test_new.npz \
+    --smplx_file /mnt/datasets/robo_results/retarget_inputs/pickup_bench_to_floor_2.npz \
     --robot unitree_g1 \
-    --save_path retarget/retarget_outputs/pickup_bench_to_floor_test_new \
+    --save_path retarget/retarget_outputs/pickup_bench_to_floor_2 \
     --robot_xml robots/g1_27dof.xml \
     --rate_limit \
-    --record_video
+    --record_video \
+    --follow_camera
 
-xvfb-run -a python retarget/construct_motion.py     --smplx_file /mnt/datasets/robo_results/retarget_inputs/pickup_bench_to_floor.npz     --robot unitree_g1     --save_path retarget/retarget_outputs/pickup_bench_to_floor     --robot_xml robots/g1_27dof.xml     --rate_limit     --record_video --follow_camera
+xvfb-run -a python retarget/construct_motion.py     --smplx_file /mnt/datasets/robo_results/retarget_inputs/pickup_bench_to_floor_3.npz     --robot unitree_g1     --save_path retarget/retarget_outputs/pickup_bench_to_floor_3     --robot_xml robots/g1_27dof.xml     --rate_limit     --record_video --follow_camera
 
 ```
 
@@ -50,11 +51,20 @@ MUJOCO_GL=egl uv run --directory tasknpoint_project python \
     --render False
 
 MUJOCO_GL=egl uv run python src/tasknpoint_project/scripts/csv_to_npz.py \
-    --input-file ../retarget/retarget_outputs/pickup_bench_to_floor.csv \
-    --output-name pickup_bench_to_floor \
+    --input-file ../retarget/retarget_outputs/one_step_forehand.csv \
+    --output-name one_step_forehand \
     --input-fps 30 \
     --output-fps 50 \
     --render False
+
+MUJOCO_GL=egl uv run python src/tasknpoint_project/scripts/csv_to_npz.py \
+    --input-file ../retarget/retarget_outputs/pickup_bench_to_floor_2.csv \
+    --output-name pickup_bench_to_floor_2 \
+    --input-fps 30 \
+    --output-fps 50 \
+    --render False \
+    --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/box_grab.toml
+
 ```
 
 ### step 3: launch training
@@ -140,4 +150,11 @@ To run with VISER!:
 
 ```
  uv run play-viser Mjlab-MultiTarget-Tracking-Flat-Unitree-G1     --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/0ulgzbgg     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/box_grab.toml
+```
+
+To also visualize blobs:
+```
+uv run play-viser-motion-ranges Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+    --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/48cdla54 \
+    --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only.toml
 ```

@@ -13,6 +13,7 @@ from mjlab.sim.sim import Simulation, SimulationCfg
 from tasknpoint_project.goal_cond_tracking.config.g1.env_cfgs import (
   unitree_g1_multi_target_tracking_env_cfg,
 )
+from tasknpoint_project.motion_sets.motion_lib import MOTION_LIB
 from mjlab.utils.lab_api.math import (
   axis_angle_from_quat,
   euler_xyz_from_quat,
@@ -24,15 +25,6 @@ from mjlab.utils.lab_api.math import (
 
 from mjlab.viewer.offscreen_renderer import OffscreenRenderer
 from mjlab.viewer.viewer_config import ViewerConfig
-
-# Each entry is (name, phase) where name is a body or site name and phase is in [0, 1].
-# Update this list per motion type before running:
-#   pickup motions  → ("right_palm", <phase>), ("left_palm", <phase>)
-#   tennis motions  → ("racket_contact", <phase>)
-PROBE_POINTS: list[tuple[str, float]] = [
-  ("right_palm", 0.412),  # phase TBD — update after inspecting the motion
-  ("left_palm",  0.412),  # same phase
-]
 
 
 class MotionLoader:
@@ -199,9 +191,10 @@ def print_probe_results(
   log: dict[str, Any],
   robot: Entity,
   fps: float,
+  probe_points: list[tuple[str, float]],
 ) -> None:
-  """Print world-frame and root-body-frame positions of PROBE_POINTS."""
-  if not PROBE_POINTS:
+  """Print world-frame and root-body-frame positions of probe_points."""
+  if not probe_points:
     return
 
   num_frames = log["body_pos_w"].shape[0]
@@ -216,7 +209,7 @@ def print_probe_results(
   print("PROBE POINT POSITIONS")
   print("=" * 60)
 
-  for name, phase in PROBE_POINTS:
+  for name, phase in probe_points:
     frame = round(phase * (num_frames - 1))
     t = frame / fps
 
@@ -258,6 +251,7 @@ def run_sim(
   output_name,
   render,
   line_range,
+  probe_points: list[tuple[str, float]],
   renderer: OffscreenRenderer | None = None,
 ):
   motion = MotionLoader(
@@ -379,7 +373,7 @@ def run_sim(
         ):
           log[k] = np.stack(log[k], axis=0)
 
-        print_probe_results(log, robot, output_fps)
+        print_probe_results(log, robot, output_fps, probe_points)
 
         print("Saving to /tmp/motion.npz...")
         np.savez("/tmp/motion.npz", **log)
@@ -449,6 +443,11 @@ def main(
         robot_entity.spec_fn = lambda: mujoco.MjSpec.from_file(_xml)
       print(f"[INFO]: Robot XML from motion config: {_xml}")
 
+  motion_cfg = MOTION_LIB.get(output_name)
+  probe_points = motion_cfg.probe_points if motion_cfg is not None else []
+  if motion_cfg is None:
+    print(f"[WARNING]: '{output_name}' not found in MOTION_LIB — probe points disabled.")
+
   scene = Scene(env_cfg.scene, device=device)
   model = scene.compile()
 
@@ -477,6 +476,7 @@ def main(
   run_sim(
     sim=sim,
     scene=scene,
+    probe_points=probe_points,
     joint_names=[
       "left_hip_pitch_joint",
       "left_hip_roll_joint",
