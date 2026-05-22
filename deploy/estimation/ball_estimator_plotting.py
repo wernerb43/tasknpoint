@@ -43,7 +43,7 @@ class BallEstimatorPlottingNode(Node):
     self.ball_history: deque[tuple[float, np.ndarray]] = deque(maxlen=HISTORY_LEN)
 
     self.create_subscription(PoseStamped, "/ball/pose", self.ball_callback, 10)
-    self.create_subscription(PoseStamped, "/g1_pelvis/pose", self.pelvis_callback, 10)
+    self.create_subscription(PoseStamped, "/g1_pelvis/filtered_pose", self.pelvis_callback, 10)
     self.create_subscription(PoseStamped, "/ball/target_pose", self.target_callback, 10)
     self.create_subscription(
       Float32MultiArray, "/ball/trajectory", self.trajectory_callback, 10
@@ -85,6 +85,7 @@ class BallEstimatorPlottingNode(Node):
     with self.lock:
       ball = self.ball_pos.copy() if self.ball_pos is not None else None
       pelvis = self.pelvis_pos.copy() if self.pelvis_pos is not None else None
+      quat = self.pelvis_quat.copy()
       target = None
       if self.target_pos_body is not None and self.pelvis_pos is not None:
         q_vec = self.pelvis_quat[:3]
@@ -93,7 +94,7 @@ class BallEstimatorPlottingNode(Node):
         target = self.target_pos_body + qw * t + np.cross(q_vec, t) + self.pelvis_pos
       traj = self.trajectory.copy() if self.trajectory is not None else None
       history = list(self.ball_history)
-    return ball, pelvis, target, traj, history
+    return ball, pelvis, quat, target, traj, history
 
 
 def main():
@@ -106,8 +107,16 @@ def main():
   fig = plt.figure(figsize=(10, 8))
   ax = fig.add_subplot(111, projection="3d")
 
+  def _quat_to_rotmat(q: np.ndarray) -> np.ndarray:
+    x, y, z, w = q
+    return np.array([
+      [1 - 2*(y*y + z*z),     2*(x*y - w*z),     2*(x*z + w*y)],
+      [    2*(x*y + w*z), 1 - 2*(x*x + z*z),     2*(y*z - w*x)],
+      [    2*(x*z - w*y),     2*(y*z + w*x), 1 - 2*(x*x + y*y)],
+    ])
+
   def update(_frame):
-    ball, pelvis, target, traj, history = node.get_state()
+    ball, pelvis, quat, target, traj, history = node.get_state()
     ax.cla()
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
@@ -141,12 +150,21 @@ def main():
 
     if pelvis is not None:
       ax.scatter(*pelvis, c="orange", s=120, marker="s", label="Pelvis", zorder=5)
+      R = _quat_to_rotmat(quat)
+      L = 0.3  # axis arrow length in metres
+      for col, axis in zip(("red", "green", "blue"), R.T):
+        ax.quiver(
+          pelvis[0], pelvis[1], pelvis[2],
+          axis[0] * L, axis[1] * L, axis[2] * L,
+          color=col, linewidth=1.5, arrow_length_ratio=0.2,
+        )
+
     if target is not None:
       ax.scatter(*target, c="red", s=150, marker="*", label="Target", zorder=5)
 
     center = ball if ball is not None else pelvis
     if center is not None:
-      r = 2.0
+      r = 4.0
       ax.set_xlim(center[0] - r, center[0] + r)
       ax.set_ylim(center[1] - r, center[1] + r)
       ax.set_zlim(0, max(center[2] + r, 2.0))
