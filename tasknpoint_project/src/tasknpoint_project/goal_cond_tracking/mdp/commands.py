@@ -98,6 +98,7 @@ class MotionCfg:
   name: str = ""
   sub_targets: list[MotionGoalCfg] = field(default_factory=list)
   sampling_weight: float = 1.0  # how often we sample this motion
+  probe_points: list[tuple[str, float]] = field(default_factory=list)  # (site_or_body_name, phase)
 
 
 class MultiTargetMotionCommand(CommandTerm):
