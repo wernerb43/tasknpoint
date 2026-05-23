@@ -400,7 +400,7 @@ class SimulationNode(Node):
         pelvis_quat_inv = quat_conjugate(pelvis_quat)
 
         contact_end = self._contact_end_frames[self.motion_idx]
-        use_ball = 0 < self.motion_frame <= contact_end
+        use_ball = self.motion_frame <= contact_end and self._ball_target_pos_w is not None
 
         goal_vecs = []
         for goal_type, goal_pos_w, vel_w, quat_w in zip(

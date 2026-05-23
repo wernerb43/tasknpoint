@@ -120,7 +120,7 @@ class SE3EKF:
 # ESTIMATOR NODE
 ############################################################################
 GRAVITY = 9.81
-COEFF_OF_RESTITUTION = 0.95
+COEFF_OF_RESTITUTION = 0.75
 
 
 class BallEstimatorNode(Node):
@@ -137,17 +137,10 @@ class BallEstimatorNode(Node):
     self.ball_trajectory_positions = np.zeros((0, 3), dtype=np.float64)
     self.ball_trajectory_times = np.zeros(0, dtype=np.float64)
     self.ball_trajectory_time_length = 5.0  # this is the amount of time in the future that the trajectory prediction should cover
-    self.cutoff_distance = 0.5
+    self.intercept_plane_dist = 0.5  # metres in front of the pelvis where the intercept plane sits
 
     self.dt = 0.02
-
-    # Kalman filter state: [x, y, z, vx, vy, vz]
-    self.kf_state = np.zeros(6, dtype=np.float64)
-    self.kf_P = np.diag([1.0, 1.0, 1.0, 10.0, 10.0, 10.0])
-    self.kf_Q = np.diag([1e-4, 1e-4, 1e-4, 1e-2, 1e-2, 1e-2])
-    self.kf_R = np.eye(3, dtype=np.float64) * 0.01
-    self.kf_initialized = False
-    self.kf_last_time: float | None = None
+    self.ball_initialized = False  # set True once first /ball/state message arrives
 
     config_path = os.path.join(
       os.path.dirname(__file__), "..", "configs", "g1_tasknpoint.yaml"
@@ -165,8 +158,8 @@ class BallEstimatorNode(Node):
     self.pelvis_ekf = SE3EKF( # TODO TUNE THESE NOISE VALUES
       process_noise_pos=0.05,
       process_noise_rot=0.05,
-      meas_noise_pos=0.05,
-      meas_noise_rot=0.05,
+      meas_noise_pos=0.1,
+      meas_noise_rot=0.1,
     )
     self._last_predict_time: float | None = None
 
@@ -174,7 +167,7 @@ class BallEstimatorNode(Node):
 
     # subscribers
     self.ball_pos_sub = self.create_subscription(
-      PoseStamped, "/ball/pose", self.ball_pose_callback, 10
+      Float32MultiArray, "/ball/state", self.ball_state_callback, 10
     )
     self.pelvis_pos_sub = self.create_subscription(
       PoseStamped, "/g1_pelvis/pose", self.pelvis_pose_callback, 10
@@ -193,12 +186,13 @@ class BallEstimatorNode(Node):
 
     print("Ball estimator node initialized.")
 
-  # callback: ball position [x, y, z] in world frame
-  def ball_pose_callback(self, msg: PoseStamped):
-    z = np.array(
-      [msg.pose.position.x, msg.pose.position.y, msg.pose.position.z], dtype=np.float64
-    )
-    self.filter_pose(z)
+  # callback: ball state [x, y, z, vx, vy, vz] in world frame from marker_to_ball_point
+  def ball_state_callback(self, msg: Float32MultiArray):
+    if len(msg.data) < 6:
+      return
+    self.ball_pos = np.array(msg.data[:3], dtype=np.float64)
+    self.ball_vel = np.array(msg.data[3:6], dtype=np.float64)
+    self.ball_initialized = True
 
   # callback: pelvis pose in world frame — EKF update then recompute targets
   def pelvis_pose_callback(self, msg: PoseStamped):
@@ -228,98 +222,95 @@ class BallEstimatorNode(Node):
         body_pos + qw * t + np.cross(q_vec, t) + self.pelvis_pos
       )
 
-  # kalman filter update: estimate velocity and position of the ball from the measurements
-  def filter_pose(self, z: np.ndarray):
-    now = self.get_clock().now().nanoseconds * 1e-9
-
-    if not self.kf_initialized:
-      self.kf_state[:3] = z
-      self.kf_initialized = True
-      self.kf_last_time = now
-      self.ball_pos = self.kf_state[:3].copy()
-      self.ball_vel = self.kf_state[3:].copy()
-      return
-
-    dt = now - self.kf_last_time
-    self.kf_last_time = now
-    if dt <= 0:
-      return
-
-    # State transition: position integrates velocity, velocity is constant (gravity handled as input)
-    F = np.eye(6, dtype=np.float64)
-    F[0, 3] = dt
-    F[1, 4] = dt
-    F[2, 5] = dt
-
-    # Deterministic gravity input
-    u = np.array([0.0, 0.0, -0.5 * GRAVITY * dt**2, 0.0, 0.0, -GRAVITY * dt])
-
-    # Predict
-    x_pred = F @ self.kf_state + u
-    P_pred = F @ self.kf_P @ F.T + self.kf_Q
-
-    # Update: observation is position only
-    H = np.zeros((3, 6), dtype=np.float64)
-    H[0, 0] = H[1, 1] = H[2, 2] = 1.0
-
-    S = H @ P_pred @ H.T + self.kf_R
-    K = P_pred @ H.T @ np.linalg.inv(S)
-
-    self.kf_state = x_pred + K @ (z - H @ x_pred)
-    self.kf_P = (np.eye(6) - K @ H) @ P_pred
-
-    self.ball_pos = self.kf_state[:3].copy()
-    self.ball_vel = self.kf_state[3:].copy()
-
-  # given the estimated position and velocity, find the point closest to either nominal target along the ball's trajectory
+  # Find where the ball's predicted trajectory crosses a plane 0.5 m in front of
+  # the pelvis (defined in the pelvis forward direction), then choose the nominal
+  # target point and motion whose pelvis-frame position is closest to that
+  # intersection.
   def estimate_target_point(self):
-    if len(self.ball_trajectory_positions) == 0:
+    # --- pelvis forward axis in world frame (body +x rotated by pelvis quat) ---
+    q_vec = self.pelvis_quat[:3]
+    qw = self.pelvis_quat[3]
+    forward_body = np.array([1.0, 0.0, 0.0])
+    t_fwd = 2.0 * np.cross(q_vec, forward_body)
+    forward_world = forward_body + qw * t_fwd + np.cross(q_vec, t_fwd)
+    norm = np.linalg.norm(forward_world)
+    if norm > 1e-8:
+      forward_world /= norm
+
+    # --- intercept plane: normal n, anchor p0 ---
+    n = forward_world
+    p0 = self.pelvis_pos + self.intercept_plane_dist * forward_world
+
+    # --- find first trajectory segment that crosses the plane ---
+    intersection_world = None
+    intersection_time = -1.0
+
+    if len(self.ball_trajectory_positions) >= 2:
+      pts = self.ball_trajectory_positions
+      times = self.ball_trajectory_times
+      # signed distance of every trajectory point to the plane
+      d = pts @ n - float(np.dot(p0, n))
+      for i in range(len(d) - 1):
+        if d[i] * d[i + 1] <= 0.0:  # sign change → segment crosses the plane
+          denom = d[i + 1] - d[i]
+          if abs(denom) < 1e-12:
+            continue
+          alpha = -d[i] / denom  # fraction along segment, in [0, 1]
+          intersection_world = pts[i] + alpha * (pts[i + 1] - pts[i])
+          intersection_time = float(times[i] + alpha * (times[i + 1] - times[i]))
+          break
+
+    if intersection_world is not None:
+      # convert intersection point from world → pelvis frame (inverse rotation)
+      v = intersection_world - self.pelvis_pos
+      t_inv = 2.0 * np.cross(q_vec, v)
+      intersection_pelvis = v - qw * t_inv + np.cross(q_vec, t_inv)
+
+      # pick the nominal target whose pelvis-frame position is closest
+      dists = [
+        np.sum((intersection_pelvis - wp) ** 2)
+        for wp in self.nominal_target_pos_pelvis
+      ]
+      # print the list of distances for debugging
+      print("Distances from intersection to nominal targets:", dists) 
+
+      best_target_idx = int(np.argmin(dists))
+      best_dist = float(np.sqrt(dists[best_target_idx]))
+
+      self.target_motion_idx = self.nominal_motion_indices[best_target_idx]
+
+      if best_dist > 1.0:  # if the intersection point is more than 1 meter from every nominal target, and it's more than 0.5 seconds in the future, then it's probably a bad estimate due to noise or an unexpected bounce, so ignore it and use the nominal target instead
+        # intersection is too far from every nominal target — use the nominal
+        # position directly so the robot doesn't reach for an unreachable point
+        self.target_pos = self.nominal_target_pos_pelvis[best_target_idx].copy()
+        self.target_time = -1.0
+        print(
+          f"Intercept point {best_dist:.2f} m from nearest target; "
+          "using nominal target:", self.target_pos
+        )
+      else:
+        self.target_pos = intersection_pelvis.copy()  # actual intercept point, not nominal
+        self.target_time = intersection_time
+        print(
+          f"Using intercept point at {intersection_world} (pelvis frame: {intersection_pelvis}), time {intersection_time:.2f} s, distance to nearest nominal target {best_dist:.2f} m")
+        print(f"motion index for this target: {self.target_motion_idx}")
+
+        # TODO OFFSETS HERE ARE HACKED, FIND OUT WHY AND FIX PROPERLY
+        self.target_pos[2] += (
+          0.30  # nudge target slightly above the estimated intercept point
+        )
+    else:
+      # Trajectory does not cross the intercept plane (e.g. ball moving away).
+      # Fall back to the nominal target closest to the current ball position.
       dists = [np.sum((self.ball_pos - wp) ** 2) for wp in self.nominal_target_pos]
       best_target_idx = int(np.argmin(dists))
+
       self.target_pos = self.nominal_target_pos_pelvis[best_target_idx].copy()
       self.target_motion_idx = self.nominal_motion_indices[best_target_idx]
       self.target_time = -1.0
-      return
-
-    best_dist_sq = float("inf")
-    best_dist_sq_stand = float("inf")
-    best_traj_idx = 0
-    best_target_idx = 0
-    best_target_idx_stand = 0
-    for i, world_target in enumerate(self.nominal_target_pos):
-      dists_sq = np.sum((self.ball_trajectory_positions - world_target) ** 2, axis=1)
-      idx = int(np.argmin(dists_sq))
-      if dists_sq[idx] < best_dist_sq:
-        best_dist_sq = float(dists_sq[idx])
-        best_traj_idx = idx
-        best_target_idx = i
-
-    for i, world_target in enumerate(self.nominal_target_pos):
-      dist = np.linalg.norm(self.ball_pos - world_target)
-      if dist < best_dist_sq_stand:
-        best_dist_sq_stand = dist
-        best_target_idx_stand = i
-
-    self.target_motion_idx = self.nominal_motion_indices[best_target_idx]
-
-    if (
-      best_dist_sq > self.cutoff_distance
-    ):  # closest point still far from both targets, fall back
-      self.target_pos = self.nominal_target_pos_pelvis[best_target_idx_stand].copy()
-      # print("Ball far from targets, using nominal target position:", self.target_pos)
-      self.target_time = -1.0
-    else:
-      v = self.ball_trajectory_positions[best_traj_idx] - self.pelvis_pos
-      q_vec = self.pelvis_quat[:3]
-      qw = self.pelvis_quat[3]
-      t = 2.0 * np.cross(q_vec, v)
-
-      self.target_pos = v - qw * t + np.cross(q_vec, t)
-      self.target_time = float(self.ball_trajectory_times[best_traj_idx])
-
-      # TODO OFFSETS HERE ARE HACKED, FIND OUT WHY AND FIX PROPERLY
-      self.target_pos[2] += (
-        0.15  # this is a hack to make the target point slightly above the ball, which seems to help with hitting
+      print(
+        "Ball trajectory does not intersect intercept plane; "
+        "using nominal target:", self.target_pos
       )
 
   def estimate_ball_trajectory(self):
@@ -387,7 +378,7 @@ class BallEstimatorNode(Node):
     if self.pelvis_ekf.initialized:
       self.publish_pelvis_estimate()
 
-    if not self.kf_initialized:
+    if not self.ball_initialized:
       return
     self.estimate_ball_trajectory()
     self.estimate_target_point()

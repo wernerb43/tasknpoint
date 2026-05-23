@@ -98,6 +98,7 @@ class MotionCfg:
   name: str = ""
   sub_targets: list[MotionGoalCfg] = field(default_factory=list)
   sampling_weight: float = 1.0  # how often we sample this motion
+  probe_points: list[tuple[str, float]] = field(default_factory=list)  # (site_or_body_name, phase)
 
 
 class MultiTargetMotionCommand(CommandTerm):
@@ -792,7 +793,8 @@ class MultiTargetMotionCommand(CommandTerm):
           self._target_body_indices_t[mv_mids, s],
           self._target_is_site_t[mv_mids, s],
         )
-        self.target_position_w[mv_eids, s] = tgt_pos
+        pos_offset = self._target_pos_means_t[mv_mids, s]  # (E_mv, 3), anchor frame
+        self.target_position_w[mv_eids, s] = tgt_pos + quat_apply(anchor_quat_w[mv_idx], pos_offset)
         self.target_orientation_w[mv_eids, s] = tgt_quat
         vel_mean_mv = self._target_vel_means_t[mv_mids, s]
         vel_std_mv = self._target_vel_stds_t[mv_mids, s]
@@ -1109,7 +1111,13 @@ class MultiTargetMotionCommand(CommandTerm):
         self._target_body_indices_t[motion_ids],  # (E, S)
         self._target_is_site_t[motion_ids],  # (E, S)
       )  # (E, S, 3/4)
-      self.target_position_w[has_moving] = tgt_pos_all[has_moving]
+      pos_offset_all = self._target_pos_means_t[motion_ids]  # (E, S, 3), anchor frame
+      anchor_quat = self.robot.data.body_link_quat_w[:, self.robot_anchor_body_index]  # (E, 4)
+      world_offset_all = quat_apply(
+        anchor_quat[:, None, :].expand(-1, S, -1).reshape(-1, 4),
+        pos_offset_all.reshape(-1, 3),
+      ).reshape(E, S, 3)
+      self.target_position_w[has_moving] = (tgt_pos_all + world_offset_all)[has_moving]
       self.target_orientation_w[has_moving] = tgt_quat_all[has_moving]
 
     # Handle motion completion with between-motion pause.

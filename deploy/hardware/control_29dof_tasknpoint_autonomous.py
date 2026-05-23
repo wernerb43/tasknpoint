@@ -21,9 +21,14 @@ from std_msgs.msg import Float64, Float32MultiArray, String
 # directory imports
 import sys
 import os
+from pathlib import Path
 
 ROOT_DIR = os.getenv("DEPLOY_ROOT_DIR")
 sys.path.append(ROOT_DIR)
+
+DEPLOY_DIR = str(Path(__file__).resolve().parents[1])
+REPO_ROOT = str(Path(__file__).resolve().parents[2])
+sys.path.append(DEPLOY_DIR)
 
 # custom imports
 from utils.policy import Policy
@@ -85,7 +90,10 @@ class ControlNode(Node):
       Float64, "/ball/target_time", self.motion_trigger_callback, 10
     )
     self.which_motion_sub = self.create_subscription(
-      Float64, "deploy_robot/which_motion", self.which_motion_callback, 10
+      Float64, "/ball/which_motion", self.which_motion_callback, 10
+    )
+    self.joystick_sub = self.create_subscription(
+      Float32MultiArray, "deploy_robot/joystick", self.joystick_callback, 10
     )
 
     # control timer to run the policy at a fixed frequency
@@ -106,6 +114,7 @@ class ControlNode(Node):
     # initialize the action
     self.action = np.zeros(self.act_size)
     self.action_triggered = False
+    self.b_pressed = False
     self.target_time = -1.0
     self.motion_idx = 0
 
@@ -126,7 +135,7 @@ class ControlNode(Node):
   # load the config file
   def load_config(self, config_path: str):
     # open the config file and load it
-    config_path_full = ROOT_DIR + "/deploy/configs/" + config_path
+    config_path_full = DEPLOY_DIR + "/configs/" + config_path
     with open(config_path_full, "r") as f:
       config = yaml.safe_load(f)
 
@@ -151,7 +160,7 @@ class ControlNode(Node):
 
     # import the policy
     policy_path = self.config["policy_path"]
-    policy_path_full = ROOT_DIR + "/policy/" + policy_path
+    policy_path_full = policy_path if os.path.isabs(policy_path) else os.path.join(ROOT_DIR, "policy", policy_path)
 
     # load the policy
     self.policy = Policy(policy_path_full)
@@ -174,7 +183,7 @@ class ControlNode(Node):
     self.motions = []
     self.time_to_contact = []
     for i, mp in enumerate(self.config["motion_paths"]):
-      path = ROOT_DIR + "/motions/" + mp
+      path = mp if os.path.isabs(mp) else os.path.join(REPO_ROOT, mp)
       m = np.load(path)
       num_frames = m["joint_pos"].shape[0]
       entry = {
@@ -195,7 +204,8 @@ class ControlNode(Node):
 
     # find anchor body index against robot's full body list
     anchor_name = self.policy.metadata["anchor_body_name"]
-    xml_path = ROOT_DIR + "/models/" + self.config["xml_path"]
+    xml_path_cfg = self.config["xml_path"]
+    xml_path = xml_path_cfg if os.path.isabs(xml_path_cfg) else os.path.join(REPO_ROOT, "robots", xml_path_cfg)
     mj_model = mujoco.MjModel.from_xml_path(xml_path)
     motion_body_names = [
       mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_BODY, i)
@@ -246,11 +256,15 @@ class ControlNode(Node):
   def goal_callback(self, msg):
     self.goal_targets = np.array(msg.data, dtype=np.float32)
 
+  def joystick_callback(self, msg):
+    self.b_pressed = len(msg.data) > 4 and float(msg.data[4]) > 0.5
+
   # motion trigger callback
   def motion_trigger_callback(self, msg):
     est_time_to_contact = msg.data
     if (
       not self.action_triggered
+      and self.b_pressed
       and est_time_to_contact < self.time_to_contact[self.motion_idx]
       and est_time_to_contact >= 0.0
     ):

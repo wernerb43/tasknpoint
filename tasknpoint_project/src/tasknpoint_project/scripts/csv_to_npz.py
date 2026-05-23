@@ -13,8 +13,10 @@ from mjlab.sim.sim import Simulation, SimulationCfg
 from tasknpoint_project.goal_cond_tracking.config.g1.env_cfgs import (
   unitree_g1_multi_target_tracking_env_cfg,
 )
+from tasknpoint_project.motion_sets.motion_lib import MOTION_LIB
 from mjlab.utils.lab_api.math import (
   axis_angle_from_quat,
+  euler_xyz_from_quat,
   quat_apply_inverse,
   quat_conjugate,
   quat_mul,
@@ -23,11 +25,6 @@ from mjlab.utils.lab_api.math import (
 
 from mjlab.viewer.offscreen_renderer import OffscreenRenderer
 from mjlab.viewer.viewer_config import ViewerConfig
-
-# Each entry is (name, phase) where name is a body or site name and phase is in [0, 1].
-PROBE_POINTS: list[tuple[str, float]] = [
-  ("racket_contact", 0.381),
-]
 
 
 class MotionLoader:
@@ -194,9 +191,10 @@ def print_probe_results(
   log: dict[str, Any],
   robot: Entity,
   fps: float,
+  probe_points: list[tuple[str, float]],
 ) -> None:
-  """Print world-frame and root-body-frame positions of PROBE_POINTS."""
-  if not PROBE_POINTS:
+  """Print world-frame and root-body-frame positions of probe_points."""
+  if not probe_points:
     return
 
   num_frames = log["body_pos_w"].shape[0]
@@ -211,29 +209,34 @@ def print_probe_results(
   print("PROBE POINT POSITIONS")
   print("=" * 60)
 
-  for name, phase in PROBE_POINTS:
+  for name, phase in probe_points:
     frame = round(phase * (num_frames - 1))
     t = frame / fps
 
     if name in body_names:
       body_idx = body_names.index(name)
       pos_w = torch.from_numpy(log["body_pos_w"][frame, body_idx, :])
+      quat_w = torch.from_numpy(log["body_quat_w"][frame, body_idx, :])
       kind = "body"
     elif name in site_names:
       site_idx = site_names.index(name)
       pos_w = torch.from_numpy(log["site_pos_w"][frame, site_idx, :])
+      quat_w = torch.from_numpy(log["site_quat_w"][frame, site_idx, :])
       kind = "site"
     else:
       print(f"  [{name}] WARNING: not found as body or site — skipping")
       continue
 
     pos_init = quat_apply_inverse(root_quat_w[0], pos_w - root_pos_w[0])
+    quat_init = quat_mul(quat_conjugate(root_quat_w[0].unsqueeze(0)), quat_w.unsqueeze(0)).squeeze(0)
+    r_w, p_w, y_w = euler_xyz_from_quat(quat_w.unsqueeze(0))
+    r_i, p_i, y_i = euler_xyz_from_quat(quat_init.unsqueeze(0))
 
     print(f"\n  {name} ({kind})  phase={phase:.3f}  frame={frame}  t={t:.3f}s")
     print(f"    world frame : x={pos_w[0]:.4f}  y={pos_w[1]:.4f}  z={pos_w[2]:.4f}")
-    print(
-      f"    init  frame : x={pos_init[0]:.4f}  y={pos_init[1]:.4f}  z={pos_init[2]:.4f}"
-    )
+    print(f"    init  frame : x={pos_init[0]:.4f}  y={pos_init[1]:.4f}  z={pos_init[2]:.4f}")
+    print(f"    ori world   : roll={r_w[0]:.4f}  pitch={p_w[0]:.4f}  yaw={y_w[0]:.4f}  (rad)")
+    print(f"    ori init    : roll={r_i[0]:.4f}  pitch={p_i[0]:.4f}  yaw={y_i[0]:.4f}  (rad)")
 
   print("\n" + "=" * 60 + "\n")
 
@@ -248,6 +251,7 @@ def run_sim(
   output_name,
   render,
   line_range,
+  probe_points: list[tuple[str, float]],
   renderer: OffscreenRenderer | None = None,
 ):
   motion = MotionLoader(
@@ -369,7 +373,7 @@ def run_sim(
         ):
           log[k] = np.stack(log[k], axis=0)
 
-        print_probe_results(log, robot, output_fps)
+        print_probe_results(log, robot, output_fps, probe_points)
 
         print("Saving to /tmp/motion.npz...")
         np.savez("/tmp/motion.npz", **log)
@@ -381,14 +385,10 @@ def run_sim(
         run = wandb.init(project="csv_to_npz", name=COLLECTION)
         print(f"[INFO]: Logging motion to wandb: {COLLECTION}")
         REGISTRY = "motions"
-        logged_artifact = run.log_artifact(
+        run.log_artifact(
           artifact_or_path="/tmp/motion.npz", name=COLLECTION, type=REGISTRY
         )
-        run.link_artifact(
-          artifact=logged_artifact,
-          target_path=f"wandb-registry-{REGISTRY}/{COLLECTION}",
-        )
-        print(f"[INFO]: Motion saved to wandb registry: {REGISTRY}/{COLLECTION}")
+        print(f"[INFO]: Motion artifact logged to wandb: {COLLECTION}")
 
         if render:
           import mediapy as media
@@ -443,6 +443,11 @@ def main(
         robot_entity.spec_fn = lambda: mujoco.MjSpec.from_file(_xml)
       print(f"[INFO]: Robot XML from motion config: {_xml}")
 
+  motion_cfg = MOTION_LIB.get(output_name)
+  probe_points = motion_cfg.probe_points if motion_cfg is not None else []
+  if motion_cfg is None:
+    print(f"[WARNING]: '{output_name}' not found in MOTION_LIB — probe points disabled.")
+
   scene = Scene(env_cfg.scene, device=device)
   model = scene.compile()
 
@@ -471,6 +476,7 @@ def main(
   run_sim(
     sim=sim,
     scene=scene,
+    probe_points=probe_points,
     joint_names=[
       "left_hip_pitch_joint",
       "left_hip_roll_joint",

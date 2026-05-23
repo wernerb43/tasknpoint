@@ -31,6 +31,7 @@ sys.path.append(ROOT_DIR)
 
 DEPLOY_DIR = str(Path(__file__).resolve().parents[1])
 REPO_ROOT = str(Path(__file__).resolve().parents[2])
+sys.path.append(DEPLOY_DIR)
 
 # custom imports
 from utils.math_utils import (
@@ -217,6 +218,18 @@ class ControlNode(Node):
     self.motion_num_frames = [
       int(np.load(mp if os.path.isabs(mp) else os.path.join(REPO_ROOT, mp))["joint_pos"].shape[0])
       for mp in self.config["motion_paths"]
+    ]
+
+    # pelvis-frame nominal target position per motion, from config — used for motion selection
+    self._nominal_positions_b = {
+      g["motion_index"]: np.array(g["vector"], dtype=np.float32)
+      for g in self.config.get("goals", [])
+      if g["type"] == "position"
+    }
+
+    # human-readable motion names derived from motion_paths filenames
+    self._motion_names = [
+      Path(mp).stem for mp in self.config["motion_paths"]
     ]
 
     # PD gains
@@ -461,11 +474,9 @@ class ControlNode(Node):
     # compute goals in anchor (pelvis) frame
     goals_msg = Float32MultiArray()
     with self.sensor_lock:
-      pelvis_pos = np.array(self.pelvis_pose_position, dtype=np.float32)
       pelvis_quat = np.array(self.pelvis_pose_quaternion, dtype=np.float32)
       ball_pos_b = np.array(self.ball_pose_position, dtype=np.float32)
     if self._goals_initialized:
-      R = quat_to_rotation_matrix(pelvis_quat)
       pelvis_quat_inv = quat_conjugate(pelvis_quat)
       g = self._goals[self.motion_idx]
       motion_frame = self.motion_frame
@@ -474,12 +485,12 @@ class ControlNode(Node):
         * (self.contact_phases[self.motion_idx] + self.contact_duration)
       )
       goal_vecs = []
-      for goal_type, goal_pos_w, vel_w, goal_quat_w in zip(
+      for goal_type, _, vel_w, goal_quat_w in zip(
         g["types"], g["pos_w"], g["vel_w"], g["quat_w"]
       ):
         if goal_type == "position":
           if motion_frame == 0:
-            goal_vecs.append(R.T @ (goal_pos_w - pelvis_pos))
+            goal_vecs.append(self._nominal_positions_b[self.motion_idx])
           else:
             goal_vecs.append(ball_pos_b)
         elif goal_type == "velocity":
@@ -550,26 +561,30 @@ class ControlNode(Node):
 
     with self.sensor_lock:
       self.ball_pose_position = ball_pos_b
-      pelvis_pos = np.array(self.pelvis_pose_position, dtype=np.float32)
-      pelvis_quat = np.array(self.pelvis_pose_quaternion, dtype=np.float32)
 
     if not self._goals_initialized:
       return
+     
+    if self.motion_frame > 0:
+      return
 
-    # select the motion whose nominal position goal is closest to the ball
-    R = quat_to_rotation_matrix(pelvis_quat)
+    # select the motion whose nominal position (pelvis-frame config vector) is closest to the ball
     best_idx = self.motion_idx
     best_dist = float("inf")
-    for idx in range(len(self.motion_num_frames)):
-      g = self._goals[idx]
-      for goal_type, goal_pos_w in zip(g["types"], g["pos_w"]):
-        if goal_type == "position":
-          nominal_b = R.T @ (goal_pos_w - pelvis_pos)
-          dist = float(np.linalg.norm(ball_pos_b - nominal_b))
-          if dist < best_dist:
-            best_dist = dist
-            best_idx = idx
-          break  # only use the first position goal per motion
+    for idx, nominal_b in self._nominal_positions_b.items():
+      dist = float(np.linalg.norm(ball_pos_b - nominal_b))
+      if dist < best_dist:
+        best_dist = dist
+        best_idx = idx
+
+    if best_idx != self.motion_idx:
+      nominal = self._nominal_positions_b[best_idx]
+      name = self._motion_names[best_idx] if best_idx < len(self._motion_names) else str(best_idx)
+      print(
+        f"Motion switch -> {name} (idx {best_idx})  "
+        f"nominal=({nominal[0]:.3f}, {nominal[1]:.3f}, {nominal[2]:.3f})  "
+        f"ball=({ball_pos_b[0]:.3f}, {ball_pos_b[1]:.3f}, {ball_pos_b[2]:.3f})"
+      )
     self.motion_idx = best_idx
 
   # main control loop to send low-level commands
