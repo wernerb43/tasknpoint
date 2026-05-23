@@ -120,7 +120,7 @@ class SE3EKF:
 # ESTIMATOR NODE
 ############################################################################
 GRAVITY = 9.81
-COEFF_OF_RESTITUTION = 0.75
+COEFF_OF_RESTITUTION = 0.85
 
 
 class BallEstimatorNode(Node):
@@ -140,7 +140,9 @@ class BallEstimatorNode(Node):
     self.intercept_plane_dist = 0.5  # metres in front of the pelvis where the intercept plane sits
 
     self.dt = 0.02
-    self.ball_initialized = False  # set True once first /ball/state message arrives
+    self.ball_initialized = False  # set True once first /ball/pose message arrives
+    self._ball_last_pos: np.ndarray | None = None
+    self._ball_last_time: float | None = None
 
     config_path = os.path.join(
       os.path.dirname(__file__), "..", "configs", "g1_tasknpoint.yaml"
@@ -154,6 +156,9 @@ class BallEstimatorNode(Node):
     self.nominal_target_pos = [np.zeros(3, dtype=np.float64) for _ in position_goals]
     self.nominal_motion_indices = [int(g["motion_index"]) for g in position_goals]
     self.target_motion_idx = self.nominal_motion_indices[0]
+    self.motion_names = [
+      os.path.basename(os.path.dirname(mp)) for mp in config["motion_paths"]
+    ]
 
     self.pelvis_ekf = SE3EKF( # TODO TUNE THESE NOISE VALUES
       process_noise_pos=0.05,
@@ -167,7 +172,7 @@ class BallEstimatorNode(Node):
 
     # subscribers
     self.ball_pos_sub = self.create_subscription(
-      Float32MultiArray, "/ball/state", self.ball_state_callback, 10
+      PoseStamped, "/ball/pose", self.ball_state_callback, 10
     )
     self.pelvis_pos_sub = self.create_subscription(
       PoseStamped, "/g1_pelvis/pose", self.pelvis_pose_callback, 10
@@ -186,13 +191,28 @@ class BallEstimatorNode(Node):
 
     print("Ball estimator node initialized.")
 
-  # callback: ball state [x, y, z, vx, vy, vz] in world frame from marker_to_ball_point
-  def ball_state_callback(self, msg: Float32MultiArray):
-    if len(msg.data) < 6:
+  # callback: ball position [x, y, z] in world frame
+  def ball_state_callback(self, msg: PoseStamped):
+    z = np.array(
+      [msg.pose.position.x, msg.pose.position.y, msg.pose.position.z], dtype=np.float64
+    )
+    now = self.get_clock().now().nanoseconds * 1e-9
+
+    if not self.ball_initialized:
+      self.ball_pos = z.copy()
+      self._ball_last_pos = z.copy()
+      self._ball_last_time = now
+      self.ball_initialized = True
       return
-    self.ball_pos = np.array(msg.data[:3], dtype=np.float64)
-    self.ball_vel = np.array(msg.data[3:6], dtype=np.float64)
-    self.ball_initialized = True
+
+    dt = now - self._ball_last_time
+    if dt > 1e-6:
+      self.ball_vel = (z - self._ball_last_pos) / dt
+
+    self.ball_pos = z.copy()
+    self._ball_last_pos = z.copy()
+    self._ball_last_time = now
+
 
   # callback: pelvis pose in world frame — EKF update then recompute targets
   def pelvis_pose_callback(self, msg: PoseStamped):
@@ -271,9 +291,6 @@ class BallEstimatorNode(Node):
         np.sum((intersection_pelvis - wp) ** 2)
         for wp in self.nominal_target_pos_pelvis
       ]
-      # print the list of distances for debugging
-      print("Distances from intersection to nominal targets:", dists) 
-
       best_target_idx = int(np.argmin(dists))
       best_dist = float(np.sqrt(dists[best_target_idx]))
 
@@ -293,11 +310,11 @@ class BallEstimatorNode(Node):
         self.target_time = intersection_time
         print(
           f"Using intercept point at {intersection_world} (pelvis frame: {intersection_pelvis}), time {intersection_time:.2f} s, distance to nearest nominal target {best_dist:.2f} m")
-        print(f"motion index for this target: {self.target_motion_idx}")
+        print(f"motion for this target: {self.motion_names[self.target_motion_idx]}")
 
         # TODO OFFSETS HERE ARE HACKED, FIND OUT WHY AND FIX PROPERLY
         self.target_pos[2] += (
-          0.30  # nudge target slightly above the estimated intercept point
+          0.00  # nudge target slightly above the estimated intercept point
         )
     else:
       # Trajectory does not cross the intercept plane (e.g. ball moving away).
@@ -401,6 +418,7 @@ class BallEstimatorNode(Node):
     self.pelvis_est_pub.publish(msg)
 
   def publish_pose(self):
+    print(f"Publishing target pose: {self.target_pos}, time {self.target_time:.2f} s, motion: {self.motion_names[self.target_motion_idx]}")
     msg = PoseStamped()
     msg.header.stamp = self.get_clock().now().to_msg()
     msg.header.frame_id = "world"
