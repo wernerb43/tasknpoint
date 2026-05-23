@@ -1022,5 +1022,40 @@ MOTION_LIB: dict[str, MotionCfg] = {
     ],
   ),
 
+ "pickup_box_1": MotionCfg(
+    name="pickup_box_1",
+    sampling_weight=1.0,
+    probe_points=[("right_palm", 0.412), ("right_palm", 0.867)],
+    sub_targets=[
+      # Right hand when box gets grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="right_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.7876, "y": 0.1359, "z": -0.328},
+        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
+        target_phase_start=0.412,
+        target_phase_end=0.430,
+      ),
+      # Left palm tracks right palm live during the hold phase, offset by the grip width.
+      # This prevents the box from being "dropped" by the left hand drifting away.
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=2.0,
+        source_link="left_palm",
+        source_type="site",
+        target_link="right_palm",   # dynamic: follows right palm's live position
+        target_type="site",
+
+        target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
+        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
+        target_phase_start=0.420,   # from when the box is grabbed
+        target_phase_end=0.867,     # until the box is set down
+      ),
+
+    ],
+  ),
+
 
 }

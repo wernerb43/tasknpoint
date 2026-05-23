@@ -11,6 +11,7 @@ from collections import deque
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import numpy as np
 
 import os
@@ -159,6 +160,24 @@ def main():
           color=col, linewidth=1.5, arrow_length_ratio=0.2,
         )
 
+      # --- intercept plane: 0.5 m in front of the pelvis (+x body axis) ---
+      forward_world = R[:, 0]            # body +x in world frame
+      p0 = pelvis + 0.5 * forward_world  # plane anchor
+      # two orthonormal vectors spanning the plane
+      ref = np.array([0.0, 0.0, 1.0]) if abs(forward_world[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+      u_vec = np.cross(forward_world, ref)
+      u_vec /= np.linalg.norm(u_vec)
+      v_vec = np.cross(forward_world, u_vec)
+      HALF = 0.5  # half-size of the displayed plane square (metres)
+      ss = np.linspace(-HALF, HALF, 6)
+      tt = np.linspace(-HALF, HALF, 6)
+      S, T = np.meshgrid(ss, tt)
+      px = p0[0] + S * u_vec[0] + T * v_vec[0]
+      py = p0[1] + S * u_vec[1] + T * v_vec[1]
+      pz = p0[2] + S * u_vec[2] + T * v_vec[2]
+      ax.plot_surface(px, py, pz, alpha=0.25, color="purple")
+      ax.scatter(*p0, c="purple", s=40, marker="x", zorder=5)  # plane centre
+
     if target is not None:
       ax.scatter(*target, c="red", s=150, marker="*", label="Target", zorder=5)
 
@@ -169,7 +188,10 @@ def main():
       ax.set_ylim(center[1] - r, center[1] + r)
       ax.set_zlim(0, max(center[2] + r, 2.0))
 
-    ax.legend(loc="upper left", fontsize=8)
+    handles, labels = ax.get_legend_handles_labels()
+    handles.append(mpatches.Patch(facecolor="purple", alpha=0.4, label="Intercept plane"))
+    labels.append("Intercept plane")
+    ax.legend(handles=handles, labels=labels, loc="upper left", fontsize=8)
     return []
 
   ani = animation.FuncAnimation(fig, update, interval=50, blit=False)  # noqa: F841

@@ -1,0 +1,12 @@
+# single pickup 
+[robot]
+xml = "robots/g1_soccer_27dof.xml"
+
+[registry]
+train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
+eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"
+
+[[motions]]
+name    = "pickup_box_1"
+enabled = true
+
