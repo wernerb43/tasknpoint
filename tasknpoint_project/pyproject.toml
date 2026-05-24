@@ -19,6 +19,8 @@ demo         = "tasknpoint_project.scripts.demo:main"
 list-envs    = "tasknpoint_project.scripts.list_envs:main"
 viz-nan      = "tasknpoint_project.scripts.nan_viz:main"
 export-scene = "tasknpoint_project.scripts.export_scene:main"
+play-viser   = "tasknpoint_project.scripts.play_viser:main"
+play-viser-motion-ranges = "tasknpoint_project.scripts.play_viser_w_motion_ranges:main"
 
 [project.entry-points."mjlab.tasks"]
 tasknpoint = "tasknpoint_project.goal_cond_tracking.config.g1"

@@ -1305,10 +1305,21 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # Right hand when box gets grabbed
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=100.0,
+        goal_weight=50.0,
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 1.6104, "y": -0.2074, "z": -0.4884},
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.378 - 0.01,
+        target_phase_end=0.378 + 0.01,
+      ),
+
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=50.0,
+        source_link="left_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.6104, "y": 0.2, "z": -0.4884},
         target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
         target_phase_start=0.378 - 0.01,
         target_phase_end=0.378 + 0.01,
@@ -1317,7 +1328,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # This prevents the box from being "dropped" by the left hand drifting away.
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=2.0,
+        goal_weight=1.0,
         source_link="left_palm",
         source_type="site",
         target_link="right_palm",   # dynamic: follows right palm's live position
@@ -1339,10 +1350,21 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # Right hand when box gets grabbed
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=100.0,
+        goal_weight=50.0,
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 1.5372, "y": -1.2038, "z": -0.3706},
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.313 - 0.01,
+        target_phase_end=0.313 + 0.01,
+      ),
+
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=50.0,
+        source_link="left_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.5372, "y": -0.8038, "z": -0.3706},
         target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
         target_phase_start=0.313 - 0.01,
         target_phase_end=0.313 + 0.01,
@@ -1351,7 +1373,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # This prevents the box from being "dropped" by the left hand drifting away.
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=2.0,
+        goal_weight=1.0,
         source_link="left_palm",
         source_type="site",
         target_link="right_palm",   # dynamic: follows right palm's live position
@@ -1373,10 +1395,21 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # Right hand when box gets grabbed
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=100.0,
+        goal_weight=50.0,
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 1.7894, "y": 0.9037, "z": -0.4059},
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.334 - 0.01,
+        target_phase_end=0.334 + 0.01,
+      ),
+
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=50.0,
+        source_link="left_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.7894, "y": 1.3037, "z": -0.4059},
         target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
         target_phase_start=0.334 - 0.01,
         target_phase_end=0.334 + 0.01,
@@ -1407,10 +1440,21 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # Right hand when box gets grabbed
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=100.0,
+        goal_weight=50.0,
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 0.9881, "y": -0.1486, "z": -0.4271},
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.323 - 0.01,
+        target_phase_end=0.323 + 0.01,
+      ),
+
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=50.0,
+        source_link="left_palm",
+        source_type="site",
+        target_pos_mean={"x": 0.9881, "y": 0.3486, "z": -0.4271},
         target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
         target_phase_start=0.323 - 0.01,
         target_phase_end=0.323 + 0.01,
@@ -1419,7 +1463,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # This prevents the box from being "dropped" by the left hand drifting away.
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=2.0,
+        goal_weight=1.0,
         source_link="left_palm",
         source_type="site",
         target_link="right_palm",   # dynamic: follows right palm's live position
@@ -1441,10 +1485,21 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # Right hand when box gets grabbed
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=100.0,
+        goal_weight=50.0,
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 0.7715, "y": 0.9096, "z": -0.3840},
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.372 - 0.01,
+        target_phase_end=0.372 + 0.01,
+      ),
+
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=50.0,
+        source_link="left_palm",
+        source_type="site",
+        target_pos_mean={"x": 0.7715, "y": 1.3096, "z": -0.3840},
         target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
         target_phase_start=0.372 - 0.01,
         target_phase_end=0.372 + 0.01,
@@ -1453,7 +1508,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # This prevents the box from being "dropped" by the left hand drifting away.
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=2.0,
+        goal_weight=1.0,
         source_link="left_palm",
         source_type="site",
         target_link="right_palm",   # dynamic: follows right palm's live position
@@ -1475,10 +1530,21 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # Right hand when box gets grabbed
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=100.0,
+        goal_weight=50.0,
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 0.4943, "y": -1.0652, "z": -0.3898},
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.337 - 0.01,
+        target_phase_end=0.337 + 0.01,
+      ),
+
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=50.0,
+        source_link="left_palm",
+        source_type="site",
+        target_pos_mean={"x": 0.4943, "y": -0.6652, "z": -0.3898},
         target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
         target_phase_start=0.337 - 0.01,
         target_phase_end=0.337 + 0.01,
@@ -1487,7 +1553,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
       # This prevents the box from being "dropped" by the left hand drifting away.
       MotionGoalCfg(
         goal_type="position",
-        goal_weight=2.0,
+        goal_weight=1.0,
         source_link="left_palm",
         source_type="site",
         target_link="right_palm",   # dynamic: follows right palm's live position
