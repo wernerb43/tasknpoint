@@ -347,9 +347,6 @@ class ControlNode(Node):
     self.motion_frame_sub = self.create_subscription(
       Float64, "deploy_robot/motion_frame", self.motion_frame_callback, 10
     )
-    self.which_motion_sub = self.create_subscription(
-      Float32MultiArray, "deploy_robot/joystick", self.which_motion_callback, 10
-    )
 
     # Hardware specific subscribers
     self.fsm_sub = self.create_subscription(
@@ -418,10 +415,6 @@ class ControlNode(Node):
   def motion_frame_callback(self, msg: Float64):
     self.motion_frame = int(msg.data)
 
-  # which motion callback — motion index is now set by ball proximity, not joystick
-  def which_motion_callback(self, msg):
-    pass
-
   # publish sensor data to ROS2 topics
   def publish_sensor_data(self):
     # read sensor data under lock
@@ -480,10 +473,10 @@ class ControlNode(Node):
       pelvis_quat_inv = quat_conjugate(pelvis_quat)
       g = self._goals[self.motion_idx]
       motion_frame = self.motion_frame
-      contact_end_frame = int(
-        self.motion_num_frames[self.motion_idx]
-        * (self.contact_phases[self.motion_idx] + self.contact_duration)
-      )
+      # contact_end_frame = int(
+      #   self.motion_num_frames[self.motion_idx]
+      #   * (self.contact_phases[self.motion_idx] + self.contact_duration)
+      # )
       goal_vecs = []
       for goal_type, _, vel_w, goal_quat_w in zip(
         g["types"], g["pos_w"], g["vel_w"], g["quat_w"]
@@ -492,6 +485,7 @@ class ControlNode(Node):
           if motion_frame == 0:
             goal_vecs.append(self._nominal_positions_b[self.motion_idx])
           else:
+            print('motion triggered, sending ball position as goal')
             goal_vecs.append(ball_pos_b)
         elif goal_type == "velocity":
           goal_vecs.append(vel_w)
