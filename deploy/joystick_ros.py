@@ -88,7 +88,7 @@ class JoystickNode(Node):
 
         if self.is_connected == 0.0:
             cmd_msg = Float32MultiArray()
-            cmd_msg.data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            cmd_msg.data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             self.command_pub.publish(cmd_msg)
             return
 
@@ -99,7 +99,7 @@ class JoystickNode(Node):
         fsm_msg.data = fsm_state
         self.fsm_pub.publish(fsm_msg)
 
-        # layout: [LS_X, LS_Y, RS_X, RS_Y, B, X]
+        # layout: [LS_X, LS_Y, RS_X, RS_Y, B, X, Y]
         cmd_msg = Float32MultiArray()
         cmd_msg.data = [
             self.joystick_state.LS_X,           # data[0]
@@ -108,6 +108,7 @@ class JoystickNode(Node):
             self.joystick_state.RS_Y,           # data[3]
             float(self.joystick_state.B),       # data[4]: launch / trigger
             float(self.joystick_state.X),       # data[5]: reset
+            float(self.joystick_state.Y),       # data[6]: otherhand offset toggle
         ]
         self.command_pub.publish(cmd_msg)
 

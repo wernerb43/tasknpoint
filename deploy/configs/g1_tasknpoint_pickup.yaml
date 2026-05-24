@@ -44,5 +44,5 @@ goals:
     motion_index: 0
   - name: "pickup_otherhand_position"
     type: "position"
-    vector: [0.0, 0.25, 0.0]
+    vector: [0.0, 0.2, 0.0]
     motion_index: 0

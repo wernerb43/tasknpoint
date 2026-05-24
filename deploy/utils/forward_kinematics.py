@@ -179,38 +179,38 @@ def pickup_fk_goals(
     mj_data,
     R_pelvis: np.ndarray,
     p_pelvis: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
+    otherhand_offset: np.ndarray,
+) -> np.ndarray:
     """
-    Compute the two FK-derived goal vectors for the box-pickup task.
+    Compute the FK-derived second goal vector for the box-pickup task.
 
-    During pickup the policy receives two goal vectors:
-      1. box_pos_in_pelvis  — where the box is (computed externally, passed in)
-                              *not* computed here; see simulation_box.py
-      2. left_wrt_right     — vector from right palm → left palm in pelvis frame
-                              computed here via FK on the current robot state
+    Matches the training observation exactly (commands.py ``command`` property):
 
-    This function returns the *second* goal only (left_wrt_right_in_pelvis),
-    since the box position is managed by the simulation node's joystick logic.
+        target_position_w  =  right_palm_world  +  R_pelvis @ otherhand_offset
+        observation        =  R_pelvis.T @ (target_position_w - pelvis_pos)
+                           =  right_palm_in_pelvis  +  otherhand_offset
+
+    where ``otherhand_offset`` is ``target_pos_mean`` from the motion config
+    (the grip-width offset in the anchor/pelvis frame, e.g. ``[0, 0.25, 0]``).
+
+    This is the target position for the *left* palm expressed in the pelvis
+    frame — a point defined dynamically relative to the *live* right palm.
 
     Parameters
     ----------
-    mj_data   : live MuJoCo MjData (xpos must be current, i.e. after mj_step)
-    R_pelvis  : (3, 3) current pelvis rotation matrix
-    p_pelvis  : (3,)  current pelvis world-frame position
+    mj_data          : live MuJoCo MjData (xpos current after mj_step)
+    R_pelvis         : (3, 3) current pelvis rotation matrix
+    p_pelvis         : (3,)   current pelvis world-frame position
+    otherhand_offset : (3,)   grip-width offset in pelvis/anchor frame;
+                              read from ``pickup_otherhand_position.vector``
+                              in the deploy config YAML
 
     Returns
     -------
-    left_palm_in_pelvis   : (3,) float32
-        Absolute left-palm position in the pelvis frame (useful for debugging).
-    left_wrt_right        : (3,) float32
-        Vector right-palm → left-palm expressed in the pelvis frame.
-        Pass this as the second entry in the published goals vector.
+    (3,) float32
+        Second goal observation: right-palm position in pelvis frame plus the
+        grip-width offset.  Pass directly as ``goal_targets[3:6]``.
     """
-    lp_w = left_palm_pos_world(mj_data)
     rp_w = right_palm_pos_world(mj_data)
-
-    R_inv = R_pelvis.T
-    left_abs   = (R_inv @ (lp_w - p_pelvis)).astype(np.float32)
-    left_wrt_r = (R_inv @ (lp_w - rp_w)).astype(np.float32)
-
-    return left_abs, left_wrt_r
+    right_in_pelvis = (R_pelvis.T @ (rp_w - p_pelvis)).astype(np.float32)
+    return right_in_pelvis + np.asarray(otherhand_offset, dtype=np.float32)
