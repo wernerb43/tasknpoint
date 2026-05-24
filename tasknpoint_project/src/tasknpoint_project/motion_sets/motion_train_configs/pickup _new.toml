@@ -1,0 +1,37 @@
+# single pickup 
+[robot]
+xml = "robots/g1_soccer_27dof.xml"
+
+[registry]
+train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
+eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"
+
+[[motions]]
+name    = "cast_pickup_1"
+enabled = true
+
+[[motions]]
+name    = "cast_pickup_2"
+enabled = true
+
+[[motions]]
+name    = "cast_pickup_3"
+enabled = true
+
+[[motions]]
+name    = "cast_pickup_4"
+enabled = true
+
+[[motions]]
+name    = "cast_pickup_5"
+enabled = true
+
+[[motions]]
+name    = "cast_pickup_6"
+enabled = true
+
+
+
+
+
+
