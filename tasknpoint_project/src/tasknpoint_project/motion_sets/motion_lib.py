@@ -1133,7 +1133,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_type="site",
         target_phase_start=0.309 - 0.015,
         target_phase_end=0.309 + 0.015,
-        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": np.pi / 2},
+        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": -np.pi / 2},
         target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
         orientation_axis="y",
       ),
@@ -1211,7 +1211,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_type="site",
         target_phase_start=0.407 - 0.015,
         target_phase_end=0.407 + 0.015,
-        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": np.pi / 2},
+        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": -np.pi / 2},
         target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
         orientation_axis="y",
       ),
@@ -1289,7 +1289,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_type="site",
         target_phase_start=0.403 - 0.015,
         target_phase_end=0.403 + 0.015,
-        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": np.pi / 2},
+        target_orientation_mean={"roll": 0.0, "pitch": 0.0, "yaw": -np.pi / 2},
         target_orientation_std={"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
         orientation_axis="y",
       ),
@@ -1309,9 +1309,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 1.6104, "y": -0.2074, "z": -0.4884},
-        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
-        target_phase_start=0.378 - 0.004,
-        target_phase_end=0.378 + 0.004,
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.378 - 0.01,
+        target_phase_end=0.378 + 0.01,
       ),
       # Left palm tracks right palm live during the hold phase, offset by the grip width.
       # This prevents the box from being "dropped" by the left hand drifting away.
@@ -1324,9 +1324,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         target_type="site",
 
         target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
-        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
-        target_phase_start=0.378 - 0.004,   # from when the box is grabbed
-        target_phase_end=0.378 + 0.004,     # until the box is set down
+        target_pos_std={"x": 0.02, "y": 0.25, "z": 0.02},
+        target_phase_start=0.0,   # from when the box is grabbed
+        target_phase_end=1.0,     # until the box is set down
       ),
     ],
   ),
@@ -1343,9 +1343,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 1.5372, "y": -1.2038, "z": -0.3706},
-        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
-        target_phase_start=0.313 - 0.004,
-        target_phase_end=0.313 + 0.004,
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.313 - 0.01,
+        target_phase_end=0.313 + 0.01,
       ),
       # Left palm tracks right palm live during the hold phase, offset by the grip width.
       # This prevents the box from being "dropped" by the left hand drifting away.
@@ -1358,9 +1358,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         target_type="site",
 
         target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
-        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
-        target_phase_start=0.313 - 0.004,   # from when the box is grabbed
-        target_phase_end=0.313 + 0.004,     # until the box is set down
+        target_pos_std={"x": 0.02, "y": 0.25, "z": 0.02},
+        target_phase_start=0.0,   # from when the box is grabbed
+        target_phase_end=1.0,     # until the box is set down
       ),
     ],
   ),
@@ -1377,9 +1377,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 1.7894, "y": 0.9037, "z": -0.4059},
-        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
-        target_phase_start=0.334 - 0.004,
-        target_phase_end=0.334 + 0.004,
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.334 - 0.01,
+        target_phase_end=0.334 + 0.01,
       ),
       # Left palm tracks right palm live during the hold phase, offset by the grip width.
       # This prevents the box from being "dropped" by the left hand drifting away.
@@ -1392,9 +1392,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         target_type="site",
 
         target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
-        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
-        target_phase_start=0.334 - 0.004,   # from when the box is grabbed
-        target_phase_end=0.334 + 0.004,     # until the box is set down
+        target_pos_std={"x": 0.02, "y": 0.25, "z": 0.02},
+        target_phase_start=0.0,   # from when the box is grabbed
+        target_phase_end=1.0,     # until the box is set down
       ),
     ],
   ),
@@ -1411,9 +1411,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 0.9881, "y": -0.1486, "z": -0.4271},
-        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
-        target_phase_start=0.323 - 0.004,
-        target_phase_end=0.323 + 0.004,
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.323 - 0.01,
+        target_phase_end=0.323 + 0.01,
       ),
       # Left palm tracks right palm live during the hold phase, offset by the grip width.
       # This prevents the box from being "dropped" by the left hand drifting away.
@@ -1426,9 +1426,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         target_type="site",
 
         target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
-        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
-        target_phase_start=0.323 - 0.004,   # from when the box is grabbed
-        target_phase_end=0.323 + 0.004,     # until the box is set down
+        target_pos_std={"x": 0.02, "y": 0.25, "z": 0.02},
+        target_phase_start=0.0,   # from when the box is grabbed
+        target_phase_end=1.0,     # until the box is set down
       ),
     ],
   ),
@@ -1445,9 +1445,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 0.7715, "y": 0.9096, "z": -0.3840},
-        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
-        target_phase_start=0.372 - 0.004,
-        target_phase_end=0.372 + 0.004,
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.372 - 0.01,
+        target_phase_end=0.372 + 0.01,
       ),
       # Left palm tracks right palm live during the hold phase, offset by the grip width.
       # This prevents the box from being "dropped" by the left hand drifting away.
@@ -1460,9 +1460,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         target_type="site",
 
         target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
-        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
-        target_phase_start=0.372 - 0.004,   # from when the box is grabbed
-        target_phase_end=0.372 + 0.004,     # until the box is set down
+        target_pos_std={"x": 0.02, "y": 0.25, "z": 0.02},
+        target_phase_start=0.0,   # from when the box is grabbed
+        target_phase_end=1.0,     # until the box is set down
       ),
     ],
   ),
@@ -1479,9 +1479,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         source_link="right_palm",
         source_type="site",
         target_pos_mean={"x": 0.4943, "y": -1.0652, "z": -0.3898},
-        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
-        target_phase_start=0.337 - 0.004,
-        target_phase_end=0.337 + 0.004,
+        target_pos_std={"x": 0.3, "y": 0.3, "z": 0.1},
+        target_phase_start=0.337 - 0.01,
+        target_phase_end=0.337 + 0.01,
       ),
       # Left palm tracks right palm live during the hold phase, offset by the grip width.
       # This prevents the box from being "dropped" by the left hand drifting away.
@@ -1494,9 +1494,9 @@ MOTION_LIB: dict[str, MotionCfg] = {
         target_type="site",
 
         target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
-        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
-        target_phase_start=0.337 - 0.004,   # from when the box is grabbed
-        target_phase_end=0.337 + 0.004,     # until the box is set down
+        target_pos_std={"x": 0.02, "y": 0.25, "z": 0.02},
+        target_phase_start=0.0,   # from when the box is grabbed
+        target_phase_end=1.0,     # until the box is set down
       ),
     ],
   ),
