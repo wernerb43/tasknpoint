@@ -831,7 +831,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
   #########################################
 
 
-    "pickup_bench_to_floor": MotionCfg(
+  "pickup_bench_to_floor": MotionCfg(
     name="pickup_bench_to_floor",
     sampling_weight=1.0,
     probe_points=[("right_palm", 0.412), ("left_palm", 0.412)],
@@ -1025,7 +1025,7 @@ MOTION_LIB: dict[str, MotionCfg] = {
     ],
   ),
 
- "pickup_box_1": MotionCfg(
+  "pickup_box_1": MotionCfg(
     name="pickup_box_1",
     sampling_weight=1.0,
     probe_points=[("right_palm", 0.412), ("right_palm", 0.867)],
@@ -1295,6 +1295,210 @@ MOTION_LIB: dict[str, MotionCfg] = {
       ),
     ],
   ),
-  
+
+  #################################### pickup 2 motions ####################################
+  "cast_pickup_1": MotionCfg(
+    name="cast_pickup_1",
+    sampling_weight=1.0,
+    probe_points=[("right_palm", 0.378)],
+    sub_targets=[
+      # Right hand when box gets grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="right_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.6104, "y": -0.2074, "z": -0.4884},
+        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
+        target_phase_start=0.378 - 0.004,
+        target_phase_end=0.378 + 0.004,
+      ),
+      # Left palm tracks right palm live during the hold phase, offset by the grip width.
+      # This prevents the box from being "dropped" by the left hand drifting away.
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=2.0,
+        source_link="left_palm",
+        source_type="site",
+        target_link="right_palm",   # dynamic: follows right palm's live position
+        target_type="site",
+
+        target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
+        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
+        target_phase_start=0.378 - 0.004,   # from when the box is grabbed
+        target_phase_end=0.378 + 0.004,     # until the box is set down
+      ),
+    ],
+  ),
+
+  "cast_pickup_2": MotionCfg(
+    name="cast_pickup_2",
+    sampling_weight=1.0,
+    probe_points=[("right_palm", 0.313)],
+    sub_targets=[
+      # Right hand when box gets grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="right_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.5372, "y": -1.2038, "z": -0.3706},
+        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
+        target_phase_start=0.313 - 0.004,
+        target_phase_end=0.313 + 0.004,
+      ),
+      # Left palm tracks right palm live during the hold phase, offset by the grip width.
+      # This prevents the box from being "dropped" by the left hand drifting away.
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=2.0,
+        source_link="left_palm",
+        source_type="site",
+        target_link="right_palm",   # dynamic: follows right palm's live position
+        target_type="site",
+
+        target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
+        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
+        target_phase_start=0.313 - 0.004,   # from when the box is grabbed
+        target_phase_end=0.313 + 0.004,     # until the box is set down
+      ),
+    ],
+  ),
+
+  "cast_pickup_3": MotionCfg(
+    name="cast_pickup_3",
+    sampling_weight=1.0,
+    probe_points=[("right_palm", 0.334)],
+    sub_targets=[
+      # Right hand when box gets grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="right_palm",
+        source_type="site",
+        target_pos_mean={"x": 1.7894, "y": 0.9037, "z": -0.4059},
+        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
+        target_phase_start=0.334 - 0.004,
+        target_phase_end=0.334 + 0.004,
+      ),
+      # Left palm tracks right palm live during the hold phase, offset by the grip width.
+      # This prevents the box from being "dropped" by the left hand drifting away.
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=2.0,
+        source_link="left_palm",
+        source_type="site",
+        target_link="right_palm",   # dynamic: follows right palm's live position
+        target_type="site",
+
+        target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
+        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
+        target_phase_start=0.334 - 0.004,   # from when the box is grabbed
+        target_phase_end=0.334 + 0.004,     # until the box is set down
+      ),
+    ],
+  ),
+
+  "cast_pickup_4": MotionCfg(
+    name="cast_pickup_4",
+    sampling_weight=1.0,
+    probe_points=[("right_palm", 0.323)],
+    sub_targets=[
+      # Right hand when box gets grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="right_palm",
+        source_type="site",
+        target_pos_mean={"x": 0.9881, "y": -0.1486, "z": -0.4271},
+        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
+        target_phase_start=0.323 - 0.004,
+        target_phase_end=0.323 + 0.004,
+      ),
+      # Left palm tracks right palm live during the hold phase, offset by the grip width.
+      # This prevents the box from being "dropped" by the left hand drifting away.
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=2.0,
+        source_link="left_palm",
+        source_type="site",
+        target_link="right_palm",   # dynamic: follows right palm's live position
+        target_type="site",
+
+        target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
+        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
+        target_phase_start=0.323 - 0.004,   # from when the box is grabbed
+        target_phase_end=0.323 + 0.004,     # until the box is set down
+      ),
+    ],
+  ),
+
+  "cast_pickup_5": MotionCfg(
+    name="cast_pickup_5",
+    sampling_weight=1.0,
+    probe_points=[("right_palm", 0.372)],
+    sub_targets=[
+      # Right hand when box gets grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="right_palm",
+        source_type="site",
+        target_pos_mean={"x": 0.7715, "y": 0.9096, "z": -0.3840},
+        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
+        target_phase_start=0.372 - 0.004,
+        target_phase_end=0.372 + 0.004,
+      ),
+      # Left palm tracks right palm live during the hold phase, offset by the grip width.
+      # This prevents the box from being "dropped" by the left hand drifting away.
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=2.0,
+        source_link="left_palm",
+        source_type="site",
+        target_link="right_palm",   # dynamic: follows right palm's live position
+        target_type="site",
+
+        target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
+        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
+        target_phase_start=0.372 - 0.004,   # from when the box is grabbed
+        target_phase_end=0.372 + 0.004,     # until the box is set down
+      ),
+    ],
+  ),
+
+  "cast_pickup_6": MotionCfg(
+    name="cast_pickup_6",
+    sampling_weight=1.0,
+    probe_points=[("right_palm", 0.337)],
+    sub_targets=[
+      # Right hand when box gets grabbed
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=100.0,
+        source_link="right_palm",
+        source_type="site",
+        target_pos_mean={"x": 0.4943, "y": -1.0652, "z": -0.3898},
+        target_pos_std={"x": 0.2, "y": 0.2, "z": 0.05},
+        target_phase_start=0.337 - 0.004,
+        target_phase_end=0.337 + 0.004,
+      ),
+      # Left palm tracks right palm live during the hold phase, offset by the grip width.
+      # This prevents the box from being "dropped" by the left hand drifting away.
+      MotionGoalCfg(
+        goal_type="position",
+        goal_weight=2.0,
+        source_link="left_palm",
+        source_type="site",
+        target_link="right_palm",   # dynamic: follows right palm's live position
+        target_type="site",
+
+        target_pos_mean={"x": 0.0, "y": 0.25, "z": 0.0},  # left - right offset, anchor frame
+        target_pos_std={"x": 0.02, "y": 0.2, "z": 0.02},
+        target_phase_start=0.337 - 0.004,   # from when the box is grabbed
+        target_phase_end=0.337 + 0.004,     # until the box is set down
+      ),
+    ],
+  ),
 
 }
