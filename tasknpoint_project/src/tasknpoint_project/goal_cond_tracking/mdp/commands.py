@@ -525,18 +525,24 @@ class MultiTargetMotionCommand(CommandTerm):
 
   @property
   def command(self) -> torch.Tensor:
-    """Joint pos/vel + per-subtarget observation (position, orientation, or velocity) in anchor frame.
+    """Joint pos/vel + per-subtarget observation (position, orientation, or velocity).
 
     Each subtarget emits only the quantity selected by its ``goal_type``:
-      "position"    → 3 values (anchor-frame position)
+      "position"    → 3 values:
+                        static target  → anchor-frame position (changes as robot moves)
+                        dynamic target → world-frame position  (constant over the episode)
       "orientation" → 4 values (anchor-frame quaternion)
       "velocity"    → 3 values (world-frame linear velocity)
+
+    For dynamic (moving) targets the world-frame position is used directly so
+    that the observation encodes the fixed per-episode task goal and does not
+    change as the robot moves toward the target.
     """
     robot_quat_inv = quat_inv(self.robot_anchor_quat_w)  # (E, 4)
     quat_inv_exp = robot_quat_inv[:, None, :].expand(-1, self.max_subtargets, -1)
     flat_quat_inv = quat_inv_exp.reshape(-1, 4)
 
-    # note that we are transforming all the position, orientation, and velocity to robot anchor frame here
+    # Pelvis-frame position — used for static targets.
     target_pos_b = quat_apply(
       flat_quat_inv,
       (self.target_position_w - self.robot_anchor_pos_w[:, None, :]).reshape(-1, 3),
@@ -549,17 +555,27 @@ class MultiTargetMotionCommand(CommandTerm):
       self.num_envs, self.max_subtargets, 3
     )  # velocity is already in world frame, no need to transform
 
+    # Per-env, per-subtarget dynamic flag: True when a target_link is set.  (E, S)
+    is_dynamic = self._has_target_link[self.which_motion]
+
     parts: list[torch.Tensor] = [
       self.joint_pos,
       self.joint_vel,
     ]  # always use joint pos and vel
 
-
     for s, goal_type in enumerate(
       self._subtarget_goal_types
     ):  # for each of the subtarget, add their goal type
       if goal_type == "position":
-        parts.append(target_pos_b[:, s])
+        # Static → pelvis-relative (tells the policy where the goal is w.r.t. the robot).
+        # Dynamic → world-frame (constant per-episode goal; does not shift as robot moves).
+        dynamic_mask = is_dynamic[:, s].unsqueeze(-1)  # (E, 1)
+        pos_obs = torch.where(
+          dynamic_mask,
+          self.target_position_w[:, s],  # world frame — constant over the motion
+          target_pos_b[:, s],            # pelvis frame — for static targets
+        )
+        parts.append(pos_obs)
       elif goal_type == "orientation":
         parts.append(target_ori_b[:, s])
       else:  # velocity

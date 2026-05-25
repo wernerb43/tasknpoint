@@ -6,14 +6,15 @@
 # with.  Arrow keys move the box; B button on the joystick triggers the motion.
 #
 # Goal vector published each tick (9 floats):
-#   [0:3]  right-palm target  = box_center_in_pelvis + right_grasp_offset  (per-motion, from YAML)
-#   [3:6]  left-palm target   = box_center_in_pelvis + left_grasp_offset   (per-motion, from YAML)
+#   [0:3]  right-palm target  = box_center_in_pelvis + R_pelvis.T @ R_box @ right_grasp_offset  (per-motion, from YAML)
+#   [3:6]  left-palm target   = box_center_in_pelvis + R_pelvis.T @ R_box @ left_grasp_offset   (per-motion, from YAML)
 #   [6:9]  otherhand target   = right_palm_in_pelvis + otherhand_offset     (live FK, per-motion)
 #            Y button toggles otherhand_offset between nominal [0,0.25,0] and wide [0,0.40,0].
 #
 # right/left offsets are pre-computed from the explicit right/left hand positions stored in
 # the deploy config YAML (cast_pickup_N_position and cast_pickup_N_left_position).
-# The box-relative offsets ensure both hand goals track the box live as it is moved.
+# Offsets are defined in the box frame so both hand goals track the box live as it is
+# moved AND as it changes orientation (R_box rotates the offset into world/pelvis frame).
 # The otherhand goal (3rd) matches the training generated_commands output for the
 # relative-hand sub-target (source=left_palm, target_link=right_palm, mean=[0,0.25,0]).
 #
@@ -103,14 +104,16 @@ class SimulationNode(Node):
 
     Goal vector (9 floats) published each control tick:
       [0:3]  right-palm target in pelvis frame
-             = box_center_in_pelvis  +  right_grasp_offset[motion_idx]
+             = box_center_in_pelvis  +  R_pelvis.T @ R_box @ right_grasp_offset[motion_idx]
       [3:6]  left-palm target in pelvis frame
-             = box_center_in_pelvis  +  left_grasp_offset[motion_idx]
+             = box_center_in_pelvis  +  R_pelvis.T @ R_box @ left_grasp_offset[motion_idx]
       [6:9]  otherhand target in pelvis frame  (live FK)
              = right_palm_in_pelvis  +  otherhand_offset[motion_idx]
 
     The first two offsets are derived from the explicit right/left pre-grab positions
-    stored in the YAML (cast_pickup_N_position / cast_pickup_N_left_position).
+    stored in the YAML (cast_pickup_N_position / cast_pickup_N_left_position) and are
+    defined in the box frame.  Multiplying by R_box rotates them into world frame so
+    that the hand targets follow the box as it both translates and rotates.
     The third (otherhand) goal matches the training generated_commands output for the
     relative-hand sub-target: live right_palm position in pelvis frame plus the
     grip-width offset ([0, 0.25, 0] from cast_pickup_N_otherhand_position.vector).
@@ -520,10 +523,14 @@ class SimulationNode(Node):
         box_center_w  = self.mj_data.body("box").xpos.astype(np.float32)
         box_in_pelvis = R.T @ (box_center_w - pelvis_pos)
 
-        # Goals 1 & 2: both hand targets are box-relative using per-motion offsets derived
-        # from the YAML right-palm / left-palm pre-grab positions (motion_lib cast_pickup_N).
-        right_goal = box_in_pelvis + self._right_grasp_offsets[self.motion_idx]
-        left_goal  = box_in_pelvis + self._left_grasp_offsets[self.motion_idx]
+        # Box orientation: rotate grasp offsets from box frame → world → pelvis frame.
+        box_quat = self.mj_data.body("box").xquat.astype(np.float32)
+        R_box    = quat_to_rotation_matrix(box_quat)
+
+        # Goals 1 & 2: offsets are in box frame so they track both box translation and
+        # rotation.  R_box rotates them to world frame; R.T brings them to pelvis frame.
+        right_goal = (box_in_pelvis + R.T @ R_box @ self._right_grasp_offsets[self.motion_idx]).astype(np.float32)
+        left_goal  = (box_in_pelvis + R.T @ R_box @ self._left_grasp_offsets[self.motion_idx]).astype(np.float32)
 
         # Goal 3 (otherhand): live right-palm position in pelvis frame + grip-width offset.
         # Matches the training generated_commands output for the relative-hand sub-target
@@ -554,14 +561,14 @@ class SimulationNode(Node):
           geom[1] — green  sphere: left-palm  target
         """
         box_center_w = self.mj_data.body("box").xpos.astype(np.float64)
-        pelvis_quat  = self.mj_data.body("pelvis").xquat.astype(np.float32)
-        R            = quat_to_rotation_matrix(pelvis_quat).astype(np.float64)
+        box_quat     = self.mj_data.body("box").xquat.astype(np.float32)
+        R_box        = quat_to_rotation_matrix(box_quat).astype(np.float64)
 
-        # Transform per-motion pelvis-frame offsets into world frame.
-        r_off    = self._right_grasp_offsets[self.motion_idx].astype(np.float64)
-        l_off    = self._left_grasp_offsets[self.motion_idx].astype(np.float64)
-        right_tgt = box_center_w + R @ r_off
-        left_tgt  = box_center_w + R @ l_off
+        # Grasp offsets are in box frame; rotate to world frame for visualisation.
+        r_off     = self._right_grasp_offsets[self.motion_idx].astype(np.float64)
+        l_off     = self._left_grasp_offsets[self.motion_idx].astype(np.float64)
+        right_tgt = box_center_w + R_box @ r_off
+        left_tgt  = box_center_w + R_box @ l_off
 
         scn       = self.viewer.user_scn
         scn.ngeom = 0

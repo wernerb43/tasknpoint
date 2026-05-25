@@ -2,7 +2,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud
-from geometry_msgs.msg import PoseStamped, PointStamped
+from geometry_msgs.msg import PoseStamped, PointStamped, Vector3Stamped
 
 GRAVITY = 9.81
 ROBOT_MARKER_EXCL_RADIUS = 0.1  # metres
@@ -52,6 +52,7 @@ class BallTracker(Node):
       PointCloud, "/pointcloud", self.pointcloud_callback, 10
     )
     self.pub = self.create_publisher(PoseStamped, "/ball/pose", 10)
+    self.vel_pub = self.create_publisher(Vector3Stamped, "/ball/velocity", 10)
     self.create_timer(0.02, self.timer_callback)
 
   def _robot_marker_callback(self, msg: PointStamped, idx: int):
@@ -158,6 +159,14 @@ class BallTracker(Node):
     out.pose.position.z = self.kf_state[2]
     out.pose.orientation.w = 1.0
     self.pub.publish(out)
+
+    vel_out = Vector3Stamped()
+    vel_out.header.stamp = stamp
+    vel_out.header.frame_id = "world"
+    vel_out.vector.x = self.kf_state[3]
+    vel_out.vector.y = self.kf_state[4]
+    vel_out.vector.z = self.kf_state[5]
+    self.vel_pub.publish(vel_out)
 
 
 def main():

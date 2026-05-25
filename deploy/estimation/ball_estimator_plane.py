@@ -143,7 +143,7 @@ class BallEstimatorNode(Node):
     self.ball_initialized = False  # set True once first /ball/pose message arrives
 
     config_path = os.path.join(
-      os.path.dirname(__file__), "..", "configs", "g1_tasknpoint_soccer.yaml"
+      os.path.dirname(__file__), "..", "configs", "g1_tasknpoint_tennis.yaml"
     )
     with open(config_path) as f:
       config = yaml.safe_load(f)

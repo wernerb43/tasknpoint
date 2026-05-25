@@ -3,13 +3,14 @@
 # Control node for the box-pickup policy.
 #
 # Goal vector received from the simulation (9 floats):
-#   [0:3]  right-palm target in pelvis frame  (box_centre + right_grasp_offset, per-motion)
-#   [3:6]  left-palm  target in pelvis frame  (box_centre + left_grasp_offset,  per-motion)
+#   [0:3]  right-palm target in pelvis frame  (box_centre + R_pelvis.T @ R_box @ right_grasp_offset, per-motion)
+#   [3:6]  left-palm  target in pelvis frame  (box_centre + R_pelvis.T @ R_box @ left_grasp_offset,  per-motion)
 #   [6:9]  otherhand  target in pelvis frame  (right_palm_live + otherhand_offset, per-motion)
 #
 # The first two offsets are derived from the explicit right/left pre-grab positions in
-# the YAML (cast_pickup_N_position / cast_pickup_N_left_position), matching the
-# motion_lib.py cast_pickup_N sub_targets.
+# the YAML (cast_pickup_N_position / cast_pickup_N_left_position) and are defined in the
+# box frame.  simulation_box.py rotates them via R_box so the hand goals track the box
+# orientation as well as its position, matching the motion_lib.py cast_pickup_N sub_targets.
 # The third (otherhand) goal is the live right-palm FK position plus the grip-width
 # offset ([0, 0.25, 0] from cast_pickup_N_otherhand_position), matching the training
 # generated_commands output for the relative-hand position sub-target.

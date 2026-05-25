@@ -116,7 +116,7 @@ SAFETY_MAX_TILT = np.radians(60.0)  # [rad]
 
 # Only switch motion when the new nominal is this much closer than the current one.
 # Prevents rapid oscillation when the ball sits near a boundary between two targets.
-_MOTION_SWITCH_HYSTERESIS = 0.05  # metres
+_MOTION_SWITCH_HYSTERESIS = 0.25  # metres
 
 
 ########################################################################
