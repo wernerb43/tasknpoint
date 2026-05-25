@@ -793,8 +793,11 @@ class MultiTargetMotionCommand(CommandTerm):
           self._target_body_indices_t[mv_mids, s],
           self._target_is_site_t[mv_mids, s],
         )
-        pos_offset = self._target_pos_means_t[mv_mids, s]  # (E_mv, 3), anchor frame
-        self.target_position_w[mv_eids, s] = tgt_pos + quat_apply(anchor_quat_w[mv_idx], pos_offset)
+        pos_offset = self._target_pos_means_t[mv_mids, s]  # (E_mv, 3), moving body local frame
+        pos_std = self._target_pos_stds_t[mv_mids, s] * self.target_pos_std_scale
+        rand_offset = pos_offset + torch.randn(len(mv_eids), 3, device=self.device) * pos_std
+
+        self.target_position_w[mv_eids, s] = tgt_pos + quat_apply(tgt_quat, rand_offset)
         self.target_orientation_w[mv_eids, s] = tgt_quat
         vel_mean_mv = self._target_vel_means_t[mv_mids, s]
         vel_std_mv = self._target_vel_stds_t[mv_mids, s]
