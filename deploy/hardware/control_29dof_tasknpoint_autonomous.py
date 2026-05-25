@@ -119,7 +119,7 @@ class ControlNode(Node):
     self.motion_idx = 0
 
     # initialize goal targets — orientation is published as a quaternion (4) not the raw 3-vec
-    goal_dim = 10  # TODO this is hardcoded for now but should be set from config?
+    goal_dim = 3  # TODO this is hardcoded for now but should be set from config?
     self.goal_targets = np.zeros(goal_dim, dtype=np.float32)
 
     # yaw alignment between robot-at-policy-start and motion frame 0 (re-captured each time FSM enters "control")

@@ -20,43 +20,32 @@ from std_msgs.msg import Float64, Float32MultiArray
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "submodules" / "deploy_robot"))
+sys.path.insert(0, str(REPO_ROOT / "deploy"))
 
 from utils.math_utils import (
     quat_conjugate,
     quat_multiply,
     quat_to_rotation_matrix,
     quat_to_rpy,
+    rpy_to_quat
 )
 
 # Motion names for display — kept in sync with the config motion order.
 _MOTION_NAMES = [
-    "forehand",
-    "backhand",
-    "two_step_forehand",
-    "two_step_backhand",
-    "stepback_forehand",
-    "stepback_backhand",
+    "right_kick",
+    "left_kick",
+    "two_step_right_kick",
+    "two_step_left_kick",
+    "two_baby_step_right_kick",
 ]
 _BALL_SPEED = 1.0     # m/s for joystick positioning
 _BALL_X_LIMIT = 2.0   # world frame absolute X (depth) limit (m)
 _BALL_Y_LIMIT = 2.5   # world frame absolute Y (lateral) limit (m)
 _BALL_Z_MIN = 0.0     # world frame Z floor (m)
 _BALL_Z_MAX = 2.0     # world frame Z ceiling (m)
-
-
-def rpy_to_quat(rpy: np.ndarray) -> np.ndarray:
-    """Convert roll-pitch-yaw to quaternion [w, x, y, z]."""
-    r, p, y = rpy
-    cr, sr = np.cos(r / 2), np.sin(r / 2)
-    cp, sp = np.cos(p / 2), np.sin(p / 2)
-    cy, sy = np.cos(y / 2), np.sin(y / 2)
-    return np.array([
-        cr * cp * cy + sr * sp * sy,
-        sr * cp * cy - cr * sp * sy,
-        cr * sp * cy + sr * cp * sy,
-        cr * cp * sy - sr * sp * cy,
-    ], dtype=np.float32)
+# Only switch motion when the new nominal is this much closer than the current one.
+# Prevents rapid oscillation when the ball sits near a boundary between two targets.
+_MOTION_SWITCH_HYSTERESIS = 0.05  # metres
 
 
 ############################################################################
@@ -96,9 +85,15 @@ class SimulationNode(Node):
         # Hit-position ball in world frame — fixed in space, not attached to the robot.
         # Initialised at the first motion's nominal position in the robot's starting pose.
         mujoco.mj_kinematics(self.mj_model, self.mj_data)
-        _R0 = quat_to_rotation_matrix(self.mj_data.body("pelvis").xquat.astype(np.float32))
+        _pelvis_quat0 = self.mj_data.body("pelvis").xquat.astype(np.float32)
+        _R0 = quat_to_rotation_matrix(_pelvis_quat0)
         _p0 = self.mj_data.body("pelvis").xpos.astype(np.float32)
         self._ball_pos_w = _R0 @ self._nominal_positions[0] + _p0
+        # Snapshot the startup pelvis quat once.  _init_goals() uses this to
+        # express orientation targets in world frame — so re-calling _init_goals()
+        # on a motion switch never changes the stored world-frame target, avoiding
+        # the orientation discontinuity that caused backward stumbling on return.
+        self._init_pelvis_quat = _pelvis_quat0.copy()
         self._last_joystick_t: float | None = None
         self._init_goals()
 
@@ -226,14 +221,12 @@ class SimulationNode(Node):
     def _init_goals(self):
         goals_cfg = self.config.get("goals", [])
 
-        mujoco.mj_kinematics(self.mj_model, self.mj_data)
-        pelvis_pos = self.mj_data.body("pelvis").xpos.astype(np.float32)
-        pelvis_quat = self.mj_data.body("pelvis").xquat.astype(np.float32)  # [w,x,y,z]
-        R_init = quat_to_rotation_matrix(pelvis_quat)
-
         self._goal_types: list[str] = []
-        self._goal_pos_w: list[np.ndarray] = []
         self._goal_vel_w: list[np.ndarray] = []
+        # _goal_quat_w stores orientation targets in world frame.  We use the
+        # STARTUP pelvis quat (self._init_pelvis_quat, always identity here) rather
+        # than the current pelvis quat, so re-calling this on a motion switch never
+        # changes the stored world-frame target and causes no orientation discontinuity.
         self._goal_quat_w: list[np.ndarray] = []
 
         for goal in [g for g in goals_cfg if g["motion_index"] == self.motion_idx]:
@@ -241,17 +234,15 @@ class SimulationNode(Node):
             goal_type = goal["type"]
             self._goal_types.append(goal_type)
             if goal_type == "position":
-                self._goal_pos_w.append(R_init @ vec + pelvis_pos)
                 self._goal_vel_w.append(np.zeros(3, dtype=np.float32))
                 self._goal_quat_w.append(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32))
             elif goal_type == "velocity":
-                self._goal_pos_w.append(np.zeros(3, dtype=np.float32))
                 self._goal_vel_w.append(vec)
                 self._goal_quat_w.append(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32))
             elif goal_type == "orientation":
-                self._goal_pos_w.append(np.zeros(3, dtype=np.float32))
                 self._goal_vel_w.append(np.zeros(3, dtype=np.float32))
-                self._goal_quat_w.append(quat_multiply(pelvis_quat, rpy_to_quat(vec)))
+                # Use the startup pelvis quat — stable regardless of when this is called.
+                self._goal_quat_w.append(quat_multiply(self._init_pelvis_quat, rpy_to_quat(vec)))
             else:
                 raise ValueError(f"Unsupported goal type: {goal_type!r}")
 
@@ -315,7 +306,14 @@ class SimulationNode(Node):
         ball_in_pelvis = R.T @ (self._ball_pos_w - pelvis_pos)
         dists = np.linalg.norm(self._nominal_positions - ball_in_pelvis, axis=1)
         new_idx = int(np.argmin(dists))
-        if new_idx != self.motion_idx:
+        # Hysteresis: only commit to a different motion when the candidate is
+        # meaningfully closer than the current one.  Without this, the argmin
+        # oscillates as the ball crosses a nominal boundary, calling _init_goals()
+        # dozens of times per second and making the policy observation unstable.
+        if (
+            new_idx != self.motion_idx
+            and dists[new_idx] + _MOTION_SWITCH_HYSTERESIS < dists[self.motion_idx]
+        ):
             self.motion_idx = new_idx
             self._init_goals()
 
@@ -359,21 +357,30 @@ class SimulationNode(Node):
         if not self._goal_types:
             return
 
-        pelvis_pos = self.mj_data.body("pelvis").xpos.astype(np.float32)
         pelvis_quat = self.mj_data.body("pelvis").xquat.astype(np.float32)
+        pelvis_pos = self.mj_data.body("pelvis").xpos.astype(np.float32)
         R = quat_to_rotation_matrix(pelvis_quat)
         pelvis_quat_inv = quat_conjugate(pelvis_quat)
 
         goal_vecs = []
-        for goal_type, _, vel_w, quat_w in zip(
-            self._goal_types, self._goal_pos_w, self._goal_vel_w, self._goal_quat_w
+        for goal_type, vel_w, quat_w in zip(
+            self._goal_types, self._goal_vel_w, self._goal_quat_w
         ):
             if goal_type == "position":
+                # if not self.action_triggered and self.motion_idx < len(self._nominal_positions):
+                #     # When no action has been triggered, keep the goal anchored to the nominal position
+                #     # for the current motion, rather than the ball.  This lets the policy sit still
+                #     # without drifting when the ball is moved around before triggering.
+                #     goal_vecs.append(self._nominal_positions[self.motion_idx])
+                # else:
                 # Express the world-frame ball position in current pelvis frame.
                 goal_vecs.append(R.T @ (self._ball_pos_w - pelvis_pos))
             elif goal_type == "velocity":
                 goal_vecs.append(vel_w)
             elif goal_type == "orientation":
+                # quat_w is anchored to the startup pelvis pose (identity), so this
+                # always gives the same heading-relative orientation signal the policy
+                # was trained on — no jump when _init_goals() is re-called mid-run.
                 goal_vecs.append(quat_multiply(pelvis_quat_inv, quat_w))
 
         msg = Float32MultiArray()

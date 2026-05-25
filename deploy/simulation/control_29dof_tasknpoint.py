@@ -18,7 +18,7 @@ from std_msgs.msg import Float64, Float32MultiArray
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "submodules" / "deploy_robot"))
+sys.path.insert(0, str(REPO_ROOT / "deploy"))
 
 from utils.policy import Policy
 from utils.math_utils import (
@@ -26,6 +26,7 @@ from utils.math_utils import (
     quat_multiply,
     quat_to_rot6d,
     yaw_quat,
+    rpy_to_quat
 )
 
 
@@ -184,7 +185,30 @@ class ControlNode(Node):
         goals_cfg = self.config.get("goals", [])
         self._goal_dim = sum(
             _type_dim[g["type"]] for g in goals_cfg if g["motion_index"] == 0
-        ) or 10
+        ) or 3
+
+        # nominal goal positions and orientations per motion (pelvis frame, from config).
+        # Used to condition the policy when no motion is in progress so it
+        # sees a stable, consistent target rather than a live ball position.
+        _pos_by_idx = {
+            g["motion_index"]: np.array(g["vector"], dtype=np.float32)
+            for g in goals_cfg
+            if g["type"] == "position"
+        }
+        _n = max(_pos_by_idx.keys()) + 1 if _pos_by_idx else 0
+        self._nominal_positions = np.array(
+            [_pos_by_idx[i] for i in range(_n)], dtype=np.float32
+        )
+
+        _ori_by_idx = {
+            g["motion_index"]: rpy_to_quat(np.array(g["vector"], dtype=np.float32))
+            for g in goals_cfg
+            if g["type"] == "orientation"
+        }
+        _n_ori = max(_ori_by_idx.keys()) + 1 if _ori_by_idx else 0
+        self._nominal_orientations = np.array(
+            [_ori_by_idx[i] for i in range(_n_ori)], dtype=np.float32
+        )
 
     #################################################################
     # CALLBACKS
@@ -240,9 +264,18 @@ class ControlNode(Node):
         self.motion_frame_pub.publish(frame_msg)
 
         # command: joint_pos_ref + joint_vel_ref + goal_targets
+        # When no motion is running, substitute the nominal target position for the
+        # chosen motion so the policy is conditioned on a stable reference rather
+        # than whatever live ball position was last received.
+        if not self.action_triggered and self.motion_idx < len(self._nominal_positions):
+            goal_targets = self.goal_targets.copy()
+            goal_targets[:3] = self._nominal_positions[self.motion_idx]
+        else:
+            goal_targets = self.goal_targets
         command = np.concatenate(
-            [motion["joint_pos"][frame], motion["joint_vel"][frame], self.goal_targets]
+            [motion["joint_pos"][frame], motion["joint_vel"][frame], goal_targets]
         )
+        print(f"goal targets: {goal_targets}")
 
         # motion_anchor_ori_b: desired anchor orientation in base frame (6D rotation)
         motion_anchor_quat_w = motion["body_quat_w"][frame, self.anchor_body_idx]

@@ -5,9 +5,17 @@
 # The box is a real MuJoCo free-body that the robot can physically interact
 # with.  Arrow keys move the box; B button on the joystick triggers the motion.
 #
-# Goal vector published each tick (6 floats):
-#   [0:3]  right-palm target  = box_center_in_pelvis + [0, -GRASP_OFFSET, 0]
-#   [3:6]  left-palm target   = right_palm_in_pelvis  + otherhand_offset   (FK)
+# Goal vector published each tick (9 floats):
+#   [0:3]  right-palm target  = box_center_in_pelvis + right_grasp_offset  (per-motion, from YAML)
+#   [3:6]  left-palm target   = box_center_in_pelvis + left_grasp_offset   (per-motion, from YAML)
+#   [6:9]  otherhand target   = right_palm_in_pelvis + otherhand_offset     (live FK, per-motion)
+#            Y button toggles otherhand_offset between nominal [0,0.25,0] and wide [0,0.40,0].
+#
+# right/left offsets are pre-computed from the explicit right/left hand positions stored in
+# the deploy config YAML (cast_pickup_N_position and cast_pickup_N_left_position).
+# The box-relative offsets ensure both hand goals track the box live as it is moved.
+# The otherhand goal (3rd) matches the training generated_commands output for the
+# relative-hand sub-target (source=left_palm, target_link=right_palm, mean=[0,0.25,0]).
 #
 ##
 
@@ -33,26 +41,21 @@ sys.path.insert(0, str(REPO_ROOT / "submodules" / "deploy_robot"))
 sys.path.insert(0, str(REPO_ROOT / "deploy" / "utils"))
 
 from utils.math_utils import (
-    quat_conjugate,
-    quat_multiply,
     quat_to_rotation_matrix,
     quat_to_rpy,
 )
-from forward_kinematics import pickup_fk_goals
 
 # ---------------------------------------------------------------------------
 # Box geometry constants
 # ---------------------------------------------------------------------------
 _BOX_HALF_X = 0.10    # depth  half-extent (m)
-_BOX_HALF_Y = 0.1   # width  half-extent (m) — = _GRASP_OFFSET
-_BOX_HALF_Z = 0.2   # height half-extent (m)
+_BOX_HALF_Y = 0.10    # width  half-extent (m)
+_BOX_HALF_Z = 0.20    # height half-extent (m)
 _BOX_MASS   = 0.1     # kg
 
-# Each palm target is _GRASP_OFFSET from the box centre along the pelvis Y-axis.
-# Right hand:  box_in_pelvis + [0, -_GRASP_OFFSET, 0]   (robot's right)
-# Left hand:   box_in_pelvis + [0, +_GRASP_OFFSET, 0]   (robot's left)
-# Consistent with otherhand_offset=[0, 0.25, 0] since 2×_GRASP_OFFSET = 0.25.
-_GRASP_OFFSET = _BOX_HALF_Y+0.1   # 0.125 m
+# Per-motion grasp offsets (right and left from box centre) are computed at
+# startup from the YAML goals — see _init_params.  _BOX_HALF_Y only controls
+# the MuJoCo box geom; it is no longer used as the goal offset.
 
 # ---------------------------------------------------------------------------
 # Arrow-key / joystick movement parameters
@@ -98,11 +101,19 @@ class SimulationNode(Node):
     actually pick it up.  Arrow keys reposition it while it is not being
     held; the B button on the joystick triggers the policy motion.
 
-    Goal vector (6 floats) published each control tick:
+    Goal vector (9 floats) published each control tick:
       [0:3]  right-palm target in pelvis frame
-             = box_center_in_pelvis  +  [0, -_GRASP_OFFSET, 0]
-      [3:6]  left-palm target in pelvis frame  (FK, not static)
-             = right_palm_in_pelvis  +  otherhand_offset
+             = box_center_in_pelvis  +  right_grasp_offset[motion_idx]
+      [3:6]  left-palm target in pelvis frame
+             = box_center_in_pelvis  +  left_grasp_offset[motion_idx]
+      [6:9]  otherhand target in pelvis frame  (live FK)
+             = right_palm_in_pelvis  +  otherhand_offset[motion_idx]
+
+    The first two offsets are derived from the explicit right/left pre-grab positions
+    stored in the YAML (cast_pickup_N_position / cast_pickup_N_left_position).
+    The third (otherhand) goal matches the training generated_commands output for the
+    relative-hand sub-target: live right_palm position in pelvis frame plus the
+    grip-width offset ([0, 0.25, 0] from cast_pickup_N_otherhand_position.vector).
     """
 
     def __init__(self, config_path: str, apply_noise: bool = False):
@@ -115,24 +126,16 @@ class SimulationNode(Node):
         self._init_simulation()   # loads model with box injected, launches viewer
 
         # ------------------------------------------------------------------
-        # Place the box at its initial world position (derived from YAML
-        # right-palm target rotated into world frame via default pelvis pose).
+        # Place the box at its initial world position.
+        # Box centre = midpoint of the right-palm and left-palm targets for
+        # motion 0, expressed in the default pelvis frame.
         # ------------------------------------------------------------------
         mujoco.mj_kinematics(self.mj_model, self.mj_data)
         _R0 = quat_to_rotation_matrix(self.mj_data.body("pelvis").xquat.astype(np.float32))
         _p0 = self.mj_data.body("pelvis").xpos.astype(np.float32)
 
-        _box_goal = next(
-            g for g in self.config.get("goals", [])
-            if g["type"] == "position"
-            and "otherhand" not in g["name"]
-            and g["motion_index"] == 0
-        )
-        # YAML vector is the RIGHT-PALM target in pelvis frame.
-        # Box centre is _GRASP_OFFSET to the robot's left of that.
-        _right_target_pelvis = np.array(_box_goal["vector"], dtype=np.float32)
-        _box_center_pelvis   = _right_target_pelvis + np.array([0.0, _GRASP_OFFSET, 0.0])
-        _box_center_world    = _R0 @ _box_center_pelvis + _p0
+        _box_center_pelvis = self._nominal_box_centers[0]
+        _box_center_world  = _R0 @ _box_center_pelvis + _p0
         _box_center_world[2] = max(float(_box_center_world[2]), _BOX_HALF_Z)
 
         self.mj_data.qpos[self._box_qpos_adr : self._box_qpos_adr + 3] = _box_center_world
@@ -185,6 +188,12 @@ class SimulationNode(Node):
         self.motion_frame        = 0
         self._motion_in_progress = False
 
+        # Otherhand-width toggle (Y button).
+        # When True  (nominal): otherhand goal = right_palm_in_pelvis + YAML offset ([0,0.25,0]).
+        # When False (wide):    otherhand goal = right_palm_in_pelvis + [0,0.4,0].
+        self._otherhand_wide   = True   # starts in nominal mode
+        self._prev_y_pressed   = False  # for rising-edge detection
+
         self.create_timer(0.0,         self._step_simulation)
         self.create_timer(self.sim_dt, self._publish_pelvis_imu)
         self.create_timer(self.sim_dt, self._publish_joint_state)
@@ -195,6 +204,7 @@ class SimulationNode(Node):
         print("    Press [Shift + Tab] to toggle the right UI.")
         print("    Arrow keys : move box  (Up/Down = X,  Left/Right = Y,  PgUp/PgDn = Z)")
         print("    Joystick B : trigger pickup motion")
+        print("    Joystick Y : toggle otherhand grip-width  (wide ↔ zero)")
         print(f"    Box initial position (world): {_box_center_world.tolist()}")
 
     #################################################################
@@ -219,6 +229,71 @@ class SimulationNode(Node):
     def _init_params(self):
         self.default_base   = np.array(self.config["default_base_pos"])
         self.default_joints = np.array(self.config["default_joint_pos"])
+
+        self.motion_idx = 0
+
+        goals_cfg = self.config.get("goals", [])
+
+        # Right-palm targets: goals whose name does NOT contain "left" or "otherhand".
+        # NOTE: "otherhand" goals must be excluded explicitly because they also lack
+        # "left" in their name but represent a grip-width offset, not a palm position.
+        _right_by_idx = {
+            g["motion_index"]: np.array(g["vector"], dtype=np.float32)
+            for g in goals_cfg
+            if g["type"] == "position"
+            and "left" not in g["name"]
+            and "otherhand" not in g["name"]
+        }
+        # Left-palm targets: goals whose name contains "left".
+        _left_by_idx = {
+            g["motion_index"]: np.array(g["vector"], dtype=np.float32)
+            for g in goals_cfg
+            if g["type"] == "position" and "left" in g["name"]
+        }
+        # Otherhand offsets: goals whose name contains "otherhand".
+        # These are the grip-width offsets added to the live right-palm position
+        # to produce the 3rd goal (target position for left_palm, in pelvis frame).
+        _otherhand_by_idx = {
+            g["motion_index"]: np.array(g["vector"], dtype=np.float32)
+            for g in goals_cfg
+            if g["type"] == "position" and "otherhand" in g["name"]
+        }
+
+        n_motions = max(max(_right_by_idx.keys()), max(_left_by_idx.keys())) + 1 \
+                    if _right_by_idx else 0
+
+        # Per-motion right-palm targets (pelvis frame from motion data).
+        self._nominal_positions = np.array(
+            [_right_by_idx[i] for i in range(n_motions)], dtype=np.float32
+        )  # shape (n_motions, 3)
+
+        # Per-motion left-palm targets (pelvis frame from motion data).
+        self._left_positions = np.array(
+            [_left_by_idx[i] for i in range(n_motions)], dtype=np.float32
+        )  # shape (n_motions, 3)
+
+        # Per-motion otherhand offsets (grip-width in pelvis frame, e.g. [0, 0.25, 0]).
+        # Fall back to [0, 0.25, 0] if not present in YAML.
+        _default_otherhand = np.array([0.0, 0.25, 0.0], dtype=np.float32)
+        self._otherhand_offsets = np.array(
+            [_otherhand_by_idx.get(i, _default_otherhand) for i in range(n_motions)],
+            dtype=np.float32,
+        )  # shape (n_motions, 3)
+
+        # Box centre in pelvis frame = midpoint of right and left pre-grab targets.
+        self._nominal_box_centers = (
+            self._nominal_positions + self._left_positions
+        ) / 2.0  # shape (n_motions, 3)
+
+        # Per-motion grasp offsets from box centre in pelvis frame.
+        # right_grasp_offsets[i] ≈ [0, -0.2, 0]  (robot's right)
+        # left_grasp_offsets[i]  ≈ [0, +0.2, 0]  (robot's left)
+        self._right_grasp_offsets = (
+            self._nominal_positions - self._nominal_box_centers
+        ).astype(np.float32)  # shape (n_motions, 3)
+        self._left_grasp_offsets = (
+            self._left_positions - self._nominal_box_centers
+        ).astype(np.float32)  # shape (n_motions, 3)
 
     def _init_simulation(self):
         xml_path = REPO_ROOT / "robots" / self.config["xml_path"]
@@ -344,56 +419,21 @@ class SimulationNode(Node):
 
     def _init_goals(self):
         """
-        Build per-goal metadata from the config.
+        Log per-motion grasp offsets.
 
-        The ``"otherhand"`` position goal carries the grip-width offset
-        (``[0, 0.25, 0]`` in pelvis frame) used for the FK computation.
+        The actual offsets are pre-computed in _init_params from the YAML
+        cast_pickup_N_position (right palm) and cast_pickup_N_left_position
+        (left palm) goals.  Both are expressed relative to the box centre
+        so they track the box live as it is moved.
         """
-        goals_cfg   = self.config.get("goals", [])
-        pelvis_quat = self.mj_data.body("pelvis").xquat.astype(np.float32)
+        goals_cfg = self.config.get("goals", [])
+        names     = [g["name"] for g in goals_cfg if g["motion_index"] == self.motion_idx]
+        r_off     = self._right_grasp_offsets[self.motion_idx]
+        l_off     = self._left_grasp_offsets[self.motion_idx]
 
-        self._goal_types:  list[str]        = []
-        self._goal_is_fk:  list[bool]       = []
-        self._goal_vel_w:  list[np.ndarray] = []
-        self._goal_quat_w: list[np.ndarray] = []
-
-        for goal in [g for g in goals_cfg if g["motion_index"] == 0]:
-            vec   = np.array(goal["vector"], dtype=np.float32)
-            gtype = goal["type"]
-            is_fk = "otherhand" in goal["name"]
-
-            self._goal_types.append(gtype)
-            self._goal_is_fk.append(is_fk)
-
-            if gtype == "velocity":
-                self._goal_vel_w.append(vec)
-                self._goal_quat_w.append(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32))
-            elif gtype == "orientation":
-                self._goal_vel_w.append(np.zeros(3, dtype=np.float32))
-                self._goal_quat_w.append(quat_multiply(pelvis_quat, rpy_to_quat(vec)))
-            else:  # position
-                self._goal_vel_w.append(np.zeros(3, dtype=np.float32))
-                self._goal_quat_w.append(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32))
-                if is_fk:
-                    # vec is the grip-width offset in pelvis/anchor frame.
-                    # Matches target_pos_mean from motion_lib.py MotionGoalCfg.
-                    # Build two presets: nominal ± 0.2 m on the Y (grip-width) axis.
-                    _TOGGLE_DELTA = 0.3
-                    nominal = vec.copy()
-                    self._otherhand_offsets = [
-                        nominal + np.array([0.0, -_TOGGLE_DELTA, 0.0], dtype=np.float32),
-                        nominal + np.array([0.0,  _TOGGLE_DELTA, 0.0], dtype=np.float32),
-                    ]
-                    self._otherhand_idx    = 0   # Y button cycles through presets
-                    self._otherhand_offset = self._otherhand_offsets[0].copy()
-                    self._y_btn_prev       = False  # debounce state
-
-        names = [g["name"] for g in goals_cfg if g["motion_index"] == 0]
-        print(f"Goals initialized for pickup motion: {names}")
-        print(f"    otherhand offset presets:")
-        for i, off in enumerate(self._otherhand_offsets):
-            marker = " <-- active" if i == self._otherhand_idx else ""
-            print(f"      [{i}] {off.tolist()}{marker}")
+        print(f"Goals initialized for pickup motion {self.motion_idx}: {names}")
+        print(f"    Right grasp offset from box centre: {r_off.tolist()}")
+        print(f"    Left  grasp offset from box centre: {l_off.tolist()}")
 
     #################################################################
     # CALLBACKS
@@ -416,20 +456,24 @@ class SimulationNode(Node):
 
     def _joystick_callback(self, msg):
         """
-        B button (data[4]) — trigger pickup motion.
-        Y button (data[6]) — cycle otherhand offset preset (nominal ± 0.2 m).
+        Joystick button handler.
+
+        Layout (matches joystick_ros.py):
+          data[4] — B : trigger pickup motion
+          data[6] — Y : toggle otherhand grip-width (wide ↔ zero), rising-edge only
         """
+        # B button — start pickup motion.
         if len(msg.data) > 4 and float(msg.data[4]) > 0.5:
             self._motion_in_progress = True
 
-        # Y button: rising-edge toggle so one press = one switch.
-        y_btn = len(msg.data) > 6 and float(msg.data[6]) > 0.5
-        if y_btn and not self._y_btn_prev:
-            self._otherhand_idx    = (self._otherhand_idx + 1) % len(self._otherhand_offsets)
-            self._otherhand_offset = self._otherhand_offsets[self._otherhand_idx].copy()
-            print(f"[Y] otherhand offset → preset {self._otherhand_idx}: "
-                  f"{self._otherhand_offset.tolist()}")
-        self._y_btn_prev = y_btn
+        # Y button — toggle otherhand width on rising edge only (avoids rapid toggling
+        # while the button is held down across multiple callback invocations).
+        y_pressed = len(msg.data) > 6 and float(msg.data[6]) > 0.5
+        if y_pressed and not self._prev_y_pressed:
+            self._otherhand_wide = not self._otherhand_wide
+            state_str   = "nominal [0,0.25,0]" if self._otherhand_wide else "wide    [0,0.40,0]"
+            self.get_logger().info(f"Otherhand grip-width toggled → {state_str}")
+        self._prev_y_pressed = y_pressed
 
     #################################################################
     # PUBLISHING
@@ -465,50 +509,36 @@ class SimulationNode(Node):
 
     def _publish_goals(self):
         which_motion_msg      = Float64()
-        which_motion_msg.data = 0.0
+        which_motion_msg.data = float(self.motion_idx)
         self.which_motion_pub.publish(which_motion_msg)
 
-        if not self._goal_types:
-            return
+        pelvis_pos  = self.mj_data.body("pelvis").xpos.astype(np.float32)
+        pelvis_quat = self.mj_data.body("pelvis").xquat.astype(np.float32)
+        R           = quat_to_rotation_matrix(pelvis_quat)
 
-        pelvis_pos      = self.mj_data.body("pelvis").xpos.astype(np.float32)
-        pelvis_quat     = self.mj_data.body("pelvis").xquat.astype(np.float32)
-        R               = quat_to_rotation_matrix(pelvis_quat)
-        pelvis_quat_inv = quat_conjugate(pelvis_quat)
-
-        # Box centre in pelvis frame (live physics position)
+        # Box centre in pelvis frame (live physics position).
         box_center_w  = self.mj_data.body("box").xpos.astype(np.float32)
         box_in_pelvis = R.T @ (box_center_w - pelvis_pos)
 
-        goal_vecs = []
-        for gtype, is_fk, vel_w, quat_w in zip(
-            self._goal_types, self._goal_is_fk,
-            self._goal_vel_w,  self._goal_quat_w,
-        ):
-            if gtype == "position" and not is_fk:
-                # Right-palm target: _GRASP_OFFSET to the robot's right of box centre.
-                # Pelvis-frame Y-negative = robot's right.
-                right_target = box_in_pelvis + np.array(
-                    [0.0, -_GRASP_OFFSET, 0.0], dtype=np.float32
-                )
-                goal_vecs.append(right_target)
+        # Goals 1 & 2: both hand targets are box-relative using per-motion offsets derived
+        # from the YAML right-palm / left-palm pre-grab positions (motion_lib cast_pickup_N).
+        right_goal = box_in_pelvis + self._right_grasp_offsets[self.motion_idx]
+        left_goal  = box_in_pelvis + self._left_grasp_offsets[self.motion_idx]
 
-            elif gtype == "position" and is_fk:
-                # Left-palm target: right_palm_in_pelvis + otherhand_offset.
-                # Matches training: target_pos_w = right_palm_w + R_pelvis @ offset
-                #   → obs = right_palm_in_pelvis + offset  (commands.py command property)
-                goal_vecs.append(
-                    pickup_fk_goals(self.mj_data, R, pelvis_pos, self._otherhand_offset)
-                )
+        # Goal 3 (otherhand): live right-palm position in pelvis frame + grip-width offset.
+        # Matches the training generated_commands output for the relative-hand sub-target
+        # (source_link=left_palm, target_link=right_palm, mean=[0,0.25,0] in anchor frame).
+        # Y-button toggle: when _otherhand_wide=False the offset is zeroed out so the
+        # policy sees the left-palm target coinciding with the right palm (zero grip width).
+        right_palm_w       = self.mj_data.site("right_palm").xpos.astype(np.float32)
+        right_palm_pelvis  = (R.T @ (right_palm_w - pelvis_pos)).astype(np.float32)
+        otherhand_offset   = (self._otherhand_offsets[self.motion_idx]          # [0, 0.25, 0] nominal
+                              if self._otherhand_wide
+                              else np.array([0.0, 0.4, 0.0], dtype=np.float32)) # [0, 0.40, 0] wide
+        otherhand_goal     = right_palm_pelvis + otherhand_offset
 
-            elif gtype == "velocity":
-                goal_vecs.append(vel_w)
-
-            elif gtype == "orientation":
-                goal_vecs.append(quat_multiply(pelvis_quat_inv, quat_w))
-
-        msg = Float32MultiArray()
-        msg.data = np.concatenate(goal_vecs).tolist()
+        msg      = Float32MultiArray()
+        msg.data = np.concatenate([right_goal, left_goal, otherhand_goal]).tolist()
         self.goal_pub.publish(msg)
 
     #################################################################
@@ -520,16 +550,18 @@ class SimulationNode(Node):
         Draw overlay spheres showing the goal grasp targets.
         The box itself is rendered by the physics engine.
 
-          geom[0] — orange sphere: right-palm target (right side of box)
-          geom[1] — green  sphere: left-palm  target (left  side of box)
+          geom[0] — orange sphere: right-palm target
+          geom[1] — green  sphere: left-palm  target
         """
         box_center_w = self.mj_data.body("box").xpos.astype(np.float64)
         pelvis_quat  = self.mj_data.body("pelvis").xquat.astype(np.float32)
         R            = quat_to_rotation_matrix(pelvis_quat).astype(np.float64)
 
-        grasp_vec  = R @ np.array([0.0, _GRASP_OFFSET, 0.0])  # pelvis-Y → world
-        right_tgt  = box_center_w - grasp_vec   # robot's right side
-        left_tgt   = box_center_w + grasp_vec   # robot's left  side
+        # Transform per-motion pelvis-frame offsets into world frame.
+        r_off    = self._right_grasp_offsets[self.motion_idx].astype(np.float64)
+        l_off    = self._left_grasp_offsets[self.motion_idx].astype(np.float64)
+        right_tgt = box_center_w + R @ r_off
+        left_tgt  = box_center_w + R @ l_off
 
         scn       = self.viewer.user_scn
         scn.ngeom = 0
@@ -608,6 +640,22 @@ class SimulationNode(Node):
 
         mujoco.mj_step(self.mj_model, self.mj_data)
 
+        # Auto-select the nearest motion based on the live box position.
+        # Compare box centre in pelvis frame against each motion's nominal box
+        # centre (midpoint of right and left pre-grab targets from YAML).
+        # Only runs when no pickup is in progress to avoid switching mid-motion.
+        if not self._motion_in_progress and len(self._nominal_box_centers) > 1:
+            _pelvis_pos = self.mj_data.body("pelvis").xpos.astype(np.float32)
+            _R          = quat_to_rotation_matrix(
+                              self.mj_data.body("pelvis").xquat.astype(np.float32))
+            _box_w      = self.mj_data.body("box").xpos.astype(np.float32)
+            _box_p      = _R.T @ (_box_w - _pelvis_pos)
+            _dists      = np.linalg.norm(self._nominal_box_centers - _box_p, axis=1)
+            _new_idx    = int(np.argmin(_dists))
+            if _new_idx != self.motion_idx:
+                self.motion_idx = _new_idx
+                self._init_goals()
+
         if self.apply_noise:
             self._apply_sensor_noise()
 
@@ -634,7 +682,8 @@ class SimulationNode(Node):
                         f"Motion:    pickup_box\n"
                         f"Box  x={box_pos[0]:.2f}"
                         f"  y={box_pos[1]:.2f}"
-                        f"  z={box_pos[2]:.2f}"
+                        f"  z={box_pos[2]:.2f}\n"
+                        f"Grip width: {'nominal 0.25 [Y→0.40]' if self._otherhand_wide else 'wide 0.40 [Y→0.25]'}"
                     ),
                     "",
                 )

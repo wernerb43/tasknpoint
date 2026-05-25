@@ -119,8 +119,6 @@ class SE3EKF:
 ############################################################################
 # ESTIMATOR NODE
 ############################################################################
-GRAVITY = 9.81
-COEFF_OF_RESTITUTION = 0.85
 
 
 class BallEstimatorNode(Node):
@@ -288,7 +286,7 @@ class BallEstimatorNode(Node):
 
       self.target_motion_idx = self.nominal_motion_indices[best_target_idx]
 
-      if best_dist > 1.0:  # if the intersection point is more than 1 meter from every nominal target, and it's more than 0.5 seconds in the future, then it's probably a bad estimate due to noise or an unexpected bounce, so ignore it and use the nominal target instead
+      if best_dist > 1.0:  # if the intersection point is more than 1 meter from every nominal target, it's probably a bad estimate due to noise, so ignore it and use the nominal target instead
         # intersection is too far from every nominal target — use the nominal
         # position directly so the robot doesn't reach for an unreachable point
         self.target_pos = self.nominal_target_pos_pelvis[best_target_idx].copy()
@@ -304,10 +302,6 @@ class BallEstimatorNode(Node):
           f"Using intercept point at {intersection_world} (pelvis frame: {intersection_pelvis}), time {intersection_time:.2f} s, distance to nearest nominal target {best_dist:.2f} m")
         print(f"motion for this target: {self.motion_names[self.target_motion_idx]}")
 
-        # TODO OFFSETS HERE ARE HACKED, FIND OUT WHY AND FIX PROPERLY
-        self.target_pos[2] += (
-          0.00  # nudge target slightly above the estimated intercept point
-        )
     else:
       # Trajectory does not cross the intercept plane (e.g. ball moving away).
       # Fall back to the nominal target closest to the current ball position.
@@ -324,57 +318,26 @@ class BallEstimatorNode(Node):
 
   def estimate_ball_trajectory(self):
     """
-    Returns (times, positions) for the ball's predicted trajectory.
+    Predict the ball's trajectory assuming constant velocity in the XY plane.
+    z is held fixed (soccer ball rolls on the ground — no bouncing, no gravity).
     times: shape (N,), positions: shape (N, 3), both in world frame.
-    Accounts for gravity and ground bounces via COEFF_OF_RESTITUTION.
     """
     x, y, z = self.ball_pos
-    vx, vy, vz = self.ball_vel
-    t_elapsed = 0.0
+    vx, vy = self.ball_vel[0], self.ball_vel[1]
 
     max_pts = int(np.ceil(self.ball_trajectory_time_length / self.dt)) + 1
-    buf_times = np.empty(max_pts, dtype=np.float64)
-    buf_positions = np.empty((max_pts, 3), dtype=np.float64)
-    n = 0
+    ts = np.arange(0.0, self.ball_trajectory_time_length, self.dt)
+    if len(ts) == 0 or ts[-1] < self.ball_trajectory_time_length - 1e-9:
+      ts = np.append(ts, self.ball_trajectory_time_length)
+    ts = ts[:max_pts]
 
-    while t_elapsed < self.ball_trajectory_time_length:
-      remaining = self.ball_trajectory_time_length - t_elapsed
+    positions = np.empty((len(ts), 3), dtype=np.float64)
+    positions[:, 0] = x + vx * ts
+    positions[:, 1] = y + vy * ts
+    positions[:, 2] = z  # constant height — ball stays on the ground plane
 
-      # Time to ground contact: z + vz*t - 0.5*g*t^2 = 0
-      # t = (vz + sqrt(vz^2 + 2*g*z)) / g  (first positive root)
-      discriminant = vz**2 + 2.0 * GRAVITY * max(z, 0.0)
-      t_bounce = (vz + np.sqrt(discriminant)) / GRAVITY
-      if t_bounce < 1e-6:
-        break
-
-      arc_duration = min(t_bounce, remaining)
-      ts = np.arange(0.0, arc_duration, self.dt)
-      if len(ts) == 0 or ts[-1] < arc_duration - 1e-9:
-        ts = np.append(ts, arc_duration)
-
-      k = len(ts)
-      if n + k > max_pts:
-        ts = ts[: max_pts - n]
-        k = len(ts)
-      buf_times[n : n + k] = t_elapsed + ts
-      buf_positions[n : n + k, 0] = x + vx * ts
-      buf_positions[n : n + k, 1] = y + vy * ts
-      buf_positions[n : n + k, 2] = z + vz * ts - 0.5 * GRAVITY * ts**2
-      n += k
-      if n >= max_pts:
-        break
-
-      t_elapsed += t_bounce
-
-      # Bounce: vz at impact is negative, flip and attenuate
-      vz_impact = vz - GRAVITY * t_bounce
-      vz = -COEFF_OF_RESTITUTION * vz_impact
-      x = x + vx * t_bounce
-      y = y + vy * t_bounce
-      z = 0.0
-
-    self.ball_trajectory_times = buf_times[:n]
-    self.ball_trajectory_positions = buf_positions[:n]
+    self.ball_trajectory_times = ts
+    self.ball_trajectory_positions = positions
 
   def timer_callback(self):
     now = self.get_clock().now().nanoseconds * 1e-9

@@ -114,6 +114,10 @@ ROS_SENSOR_PUBLISH_DT = 0.01  # [sec]
 # safety: max allowable pelvis roll/pitch before forcing damp (when you fall)
 SAFETY_MAX_TILT = np.radians(60.0)  # [rad]
 
+# Only switch motion when the new nominal is this much closer than the current one.
+# Prevents rapid oscillation when the ball sits near a boundary between two targets.
+_MOTION_SWITCH_HYSTERESIS = 0.05  # metres
+
 
 ########################################################################
 # CONTROL
@@ -467,7 +471,11 @@ class ControlNode(Node):
     # compute goals in anchor (pelvis) frame
     goals_msg = Float32MultiArray()
     with self.sensor_lock:
-      pelvis_quat = np.array(self.pelvis_pose_quaternion, dtype=np.float32)
+      pelvis_quat = (
+        np.array(self.pelvis_imu_quaternion, dtype=np.float32)
+        if self.pelvis_imu_quaternion is not None
+        else np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+      )
       ball_pos_b = np.array(self.ball_pose_position, dtype=np.float32)
     if self._goals_initialized:
       pelvis_quat_inv = quat_conjugate(pelvis_quat)
@@ -540,7 +548,12 @@ class ControlNode(Node):
 
     if not self._goals_initialized:
       pelvis_pos = np.array(self.pelvis_pose_position, dtype=np.float32)
-      pelvis_quat = np.array(self.pelvis_pose_quaternion, dtype=np.float32)
+      with self.sensor_lock:
+        pelvis_quat = (
+          np.array(self.pelvis_imu_quaternion, dtype=np.float32)
+          if self.pelvis_imu_quaternion is not None
+          else np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        )
       old_idx = self.motion_idx
       for idx in range(len(self.motion_num_frames)):
         self.motion_idx = idx
@@ -562,16 +575,27 @@ class ControlNode(Node):
     if self.motion_frame > 0:
       return
 
-    # select the motion whose nominal position (pelvis-frame config vector) is closest to the ball
+    # Select the closest motion nominal. Track both the global best and the
+    # current motion's distance so we can apply hysteresis before switching.
     best_idx = self.motion_idx
     best_dist = float("inf")
+    curr_dist = float("inf")
     for idx, nominal_b in self._nominal_positions_b.items():
       dist = float(np.linalg.norm(ball_pos_b - nominal_b))
+      if idx == self.motion_idx:
+        curr_dist = dist
       if dist < best_dist:
         best_dist = dist
         best_idx = idx
 
-    if best_idx != self.motion_idx:
+    # Hysteresis: only commit to a different motion when the candidate is
+    # meaningfully closer than the current one.  Without this, the argmin
+    # oscillates as the ball crosses a nominal boundary, which sends rapid
+    # alternating motion references to the control node and destabilises it.
+    if (
+      best_idx != self.motion_idx
+      and best_dist + _MOTION_SWITCH_HYSTERESIS < curr_dist
+    ):
       nominal = self._nominal_positions_b[best_idx]
       name = self._motion_names[best_idx] if best_idx < len(self._motion_names) else str(best_idx)
       print(
@@ -579,7 +603,7 @@ class ControlNode(Node):
         f"nominal=({nominal[0]:.3f}, {nominal[1]:.3f}, {nominal[2]:.3f})  "
         f"ball=({ball_pos_b[0]:.3f}, {ball_pos_b[1]:.3f}, {ball_pos_b[2]:.3f})"
       )
-    self.motion_idx = best_idx
+      self.motion_idx = best_idx
 
   # main control loop to send low-level commands
   def LowCmdWrite(self):

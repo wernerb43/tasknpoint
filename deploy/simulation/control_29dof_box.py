@@ -2,9 +2,17 @@
 #
 # Control node for the box-pickup policy.
 #
-# Goal vector received from the simulation (6 floats):
-#   [0:3]  box target position in pelvis frame  (joystick-controlled)
-#   [3:6]  left-wrt-right palm in pelvis frame  (FK-computed by simulation)
+# Goal vector received from the simulation (9 floats):
+#   [0:3]  right-palm target in pelvis frame  (box_centre + right_grasp_offset, per-motion)
+#   [3:6]  left-palm  target in pelvis frame  (box_centre + left_grasp_offset,  per-motion)
+#   [6:9]  otherhand  target in pelvis frame  (right_palm_live + otherhand_offset, per-motion)
+#
+# The first two offsets are derived from the explicit right/left pre-grab positions in
+# the YAML (cast_pickup_N_position / cast_pickup_N_left_position), matching the
+# motion_lib.py cast_pickup_N sub_targets.
+# The third (otherhand) goal is the live right-palm FK position plus the grip-width
+# offset ([0, 0.25, 0] from cast_pickup_N_otherhand_position), matching the training
+# generated_commands output for the relative-hand position sub-target.
 #
 ##
 
@@ -43,12 +51,13 @@ class ControlNode(Node):
     Asynchronous control node for the box-pickup policy.
 
     Observation layout mirrors control_29dof_tasknpoint.py:
-      command         = joint_pos_ref + joint_vel_ref + goal_targets (6D)
+      command         = joint_pos_ref + joint_vel_ref + goal_targets (9D)
       anchor_ori_b    = desired anchor orientation in base frame (6D rot)
       base_ang_vel_b  = pelvis angular velocity from IMU (3D)
       qj              = joint positions relative to default (nj)
       dqj             = joint velocities (nj)
       action          = previous action (nj)
+    Total: 29+29+9 + 6 + 3 + 29 + 29 + 29 = 163 dims.
     """
 
     def __init__(self, config_path: str):
@@ -85,6 +94,9 @@ class ControlNode(Node):
             Float32MultiArray, "deploy_robot/goals", self._goal_callback, 10
         )
         self.create_subscription(
+            Float64, "deploy_robot/which_motion", self._which_motion_callback, 10
+        )
+        self.create_subscription(
             Float32MultiArray,
             "deploy_robot/joystick",
             self._motion_trigger_callback,
@@ -104,6 +116,7 @@ class ControlNode(Node):
         self.action          = np.zeros(self.act_size, dtype=np.float32)
         self.action_triggered = False
         self.goal_targets    = np.zeros(self._goal_dim, dtype=np.float32)
+        self.motion_idx      = 0
 
         self.init_quat        = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
         self.policy_start_time = None
@@ -185,8 +198,11 @@ class ControlNode(Node):
 
         print(f"    anchor_body={anchor_name} (motion idx {self.anchor_body_idx})")
 
-        # Pickup always has exactly 2 × position goals = 6 floats.
-        self._goal_dim = 6
+        # Pickup has 3 × position goals = 9 floats:
+        #   right_palm_target (3) + left_palm_target (3) + otherhand_target (3).
+        # The 3rd goal is the live right_palm_in_pelvis + grip-width offset,
+        # matching the cast_pickup_N_otherhand_position sub-target in training.
+        self._goal_dim = 9
 
     #################################################################
     # CALLBACKS
@@ -211,6 +227,12 @@ class ControlNode(Node):
     def _goal_callback(self, msg):
         self.goal_targets = np.array(msg.data, dtype=np.float32)
 
+    def _which_motion_callback(self, msg):
+        # Only switch motion when no pickup is in progress to avoid
+        # changing reference mid-motion (mirrors control_29dof_tasknpoint.py).
+        if not self.action_triggered:
+            self.motion_idx = int(msg.data)
+
     def _motion_trigger_callback(self, msg):
         # Trigger on B button (data[4]).
         if not self.action_triggered and len(msg.data) > 4 and msg.data[4] > 0.5:
@@ -222,7 +244,7 @@ class ControlNode(Node):
     #################################################################
 
     def _build_observation(self):
-        motion = self.motions[0]   # single motion for pickup
+        motion = self.motions[self.motion_idx]
 
         if self.action_triggered:
             elapsed = self.sim_time - self.policy_start_time
@@ -260,7 +282,6 @@ class ControlNode(Node):
         obs = np.concatenate(
             [command, anchor_ori_b, base_ang_vel_b, qj, dqj, self.action]
         ).astype(np.float32)
-
         return obs, frame
 
     #################################################################

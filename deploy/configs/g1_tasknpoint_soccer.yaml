@@ -1,12 +1,13 @@
-xml_path: "g1_27dof_deploy_tennis.xml"
+xml_path: "g1_27dof_deploy.xml"
 
-policy_path: "/home/blake/tasknpoint/logs/rsl_rl/g1_tracking/kicks_2.onnx"
+policy_path: "/home/blake/tasknpoint/logs/rsl_rl/g1_tracking/kicks_no_ori.onnx"
 
 motion_paths:
-  - "artifacts/right_kick:v0/motion.npz"
-  - "artifacts/left_kick:v0/motion.npz"
-  - "artifacts/right_far_kick:v0/motion.npz"
-  - "artifacts/left_far_kick:v0/motion.npz"
+  - "artifacts/one_step_right_kick.npz"
+  - "artifacts/one_step_left_kick.npz"
+  - "artifacts/two_step_right_kick.npz"
+  - "artifacts/two_step_left_kick.npz"
+  # - "artifacts/two_baby_step_right_kick.npz"
   # - "artifacts/forehand_fast:v0/motion.npz"
   # - "artifacts/backhand_fast:v0/motion.npz"
   # - "artifacts/two_step_forehand_fast:v0/motion.npz"
@@ -42,57 +43,69 @@ action_scale: [0.548, 0.351, 0.548, 0.351, 0.439, 0.439,
                0.439, 0.439, 0.439, 0.439, 0.439, 0.075, 0.075]
 
 control_dt: 0.02
-contact_phase: [0.290, 0.340, 0.408, 0.405]
+contact_phase: [0.293, 0.403, 0.407, 0.474, 0.403]
 contact_duration: 1.0
 ball_launch_velocity: [-2.0, 0.0, 3.0]
 
 goals:
-  - name: "right_kick_position"
+  - name: "one_step_right_kick_position"
     type: "position"
-    vector: [0.5, -0.6, -0.76]
+    vector: [0.3206, -0.3557, -0.7514]
     motion_index: 0
-  - name: "right_kick_velocity"
-    type: "velocity"
-    vector: [1.0, 0.0, 0.0]
-    motion_index: 0
-  - name: "right_kick_orientation"
-    type: "orientation"
-    vector: [0.0, 0.0, -1.571]
-    motion_index: 0
-  - name: "left_kick_position"
+  # - name: "one_step_right_kick_velocity"
+  #   type: "velocity"
+  #   vector: [1.0, 0.0, 0.0]
+  #   motion_index: 0
+  # - name: "one_step_right_kick_orientation"
+  #   type: "orientation"
+  #   vector: [0.0, 0.0, -1.5708]
+  #   motion_index: 0
+  - name: "one_step_left_kick_position"
     type: "position"
-    vector: [0.5, 0.0, -0.76]
+    vector: [0.4484, 0.4820, -0.7188]
     motion_index: 1
-  - name: "left_kick_velocity"
-    type: "velocity"
-    vector: [1.0, 0.0, 0.0]
-    motion_index: 1
-  - name: "left_kick_orientation"
-    type: "orientation"
-    vector: [0.0, 0.0, 1.571]
-    motion_index: 1
-  - name: "right_far_kick_position"
+  # - name: "one_step_left_kick_velocity"
+  #   type: "velocity"
+  #   vector: [1.0, 0.0, 0.0]
+  #   motion_index: 1
+  # - name: "one_step_left_kick_orientation"
+  #   type: "orientation"
+  #   vector: [0.0, 0.0, 1.5708]
+  #   motion_index: 1
+  - name: "two_step_right_kick_position"
     type: "position"
-    vector: [0.5, -1.2, -0.76]
+    vector: [0.4856, -0.7632, -0.7502]
     motion_index: 2
-  - name: "right_far_kick_velocity"
-    type: "velocity"
-    vector: [1.0, 0.0, 0.0]
-    motion_index: 2
-  - name: "right_far_kick_orientation"
-    type: "orientation"
-    vector: [0.0, 0.0, -1.571]
-    motion_index: 2
-  - name: "left_far_kick_position"
+  # - name: "two_step_right_kick_velocity"
+  #   type: "velocity"
+  #   vector: [1.0, 0.0, 0.0]
+  #   motion_index: 2
+  # - name: "two_step_right_kick_orientation"
+  #   type: "orientation"
+  #   vector: [0.0, 0.0, -1.5708]
+  #   motion_index: 2
+  - name: "two_step_left_kick_position"
     type: "position"
-    vector: [1.0, -0.6, -0.76]
+    vector: [0.5222, 0.8246, -0.6967]
     motion_index: 3
-  - name: "left_far_kick_velocity"
-    type: "velocity"
-    vector: [1.0, 0.0, 0.0]
-    motion_index: 3
-  - name: "left_far_kick_orientation"
-    type: "orientation"
-    vector: [0.0, 0.0, 1.571]
-    motion_index: 3
+  # - name: "two_step_left_kick_velocity"
+  #   type: "velocity"
+  #   vector: [1.0, 0.0, 0.0]
+  #   motion_index: 3
+  # - name: "two_step_left_kick_orientation"
+  #   type: "orientation"
+  #   vector: [0.0, 0.0, 1.5708]
+  #   motion_index: 3
+  # - name: "two_baby_step_right_kick_position"
+  #   type: "position"
+  #   vector: [0.4812, -0.0485, -0.7371]
+  #   motion_index: 4
+  # - name: "two_baby_step_right_kick_velocity"
+  #   type: "velocity"
+  #   vector: [1.0, 0.0, 0.0]
+  #   motion_index: 4
+  # - name: "two_baby_step_right_kick_orientation"
+  #   type: "orientation"
+  #   vector: [0.0, 0.0, -1.5708]
+  #   motion_index: 4
 

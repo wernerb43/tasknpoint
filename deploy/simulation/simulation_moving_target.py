@@ -20,7 +20,7 @@ from std_msgs.msg import Float64, Float32MultiArray
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "submodules" / "deploy_robot"))
+sys.path.insert(0, str(REPO_ROOT / "deploy"))
 
 from utils.math_utils import (
     quat_conjugate,

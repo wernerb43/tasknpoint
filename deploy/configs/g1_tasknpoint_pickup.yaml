@@ -1,9 +1,15 @@
 xml_path: "g1_27dof_deploy.xml"
 
-policy_path: "/home/blake/tasknpoint/logs/rsl_rl/g1_tracking/pickup_1.onnx"
+policy_path: "/home/blake/tasknpoint/logs/rsl_rl/g1_tracking/pickup_5.onnx"
 
 motion_paths:
-  - "artifacts/pickup_box_1:v1/motion.npz"
+  - "artifacts/cast_pickup_1.npz"
+  - "artifacts/cast_pickup_2.npz"
+  - "artifacts/cast_pickup_3.npz"
+  - "artifacts/cast_pickup_4.npz"
+  - "artifacts/cast_pickup_5.npz"
+  - "artifacts/cast_pickup_6.npz"
+
 
 home_pos_duration: 3.0
 
@@ -38,11 +44,87 @@ contact_duration: 1.0
 ball_launch_velocity: [-2.0, 0.0, 3.0]
 
 goals:
-  - name: "pickup_target_position"
+  # Each pickup motion has two explicit pre-grab targets (right palm and left palm)
+  # derived directly from motion_lib.py cast_pickup_N sub_targets.
+  # Both are absolute positions in the motion anchor (pelvis) frame.
+  # The simulation converts them to box-relative offsets so goals track the box live.
+
+  - name: "cast_pickup_1_position"
     type: "position"
-    vector: [0.5, -0.6, -0.76]
+    vector: [1.6104, -0.2074, -0.4884]
     motion_index: 0
-  - name: "pickup_otherhand_position"
+  - name: "cast_pickup_1_left_position"
     type: "position"
-    vector: [0.0, 0.2, 0.0]
+    vector: [1.6104, 0.2, -0.4884]
     motion_index: 0
+  - name: "cast_pickup_1_otherhand_position"
+    type: "position"
+    vector: [0.0, 0.20, 0.0]
+    motion_index: 0
+
+  - name: "cast_pickup_2_position"
+    type: "position"
+    vector: [1.5372, -1.2038, -0.3706]
+    motion_index: 1
+  - name: "cast_pickup_2_left_position"
+    type: "position"
+    vector: [1.5372, -0.8038, -0.3706]
+    motion_index: 1
+  - name: "cast_pickup_2_otherhand_position"
+    type: "position"
+    vector: [0.0, 0.20, 0.0]
+    motion_index: 1
+
+
+  - name: "cast_pickup_3_position"
+    type: "position"
+    vector: [1.7894, 0.9037, -0.4059]
+    motion_index: 2
+  - name: "cast_pickup_3_left_position"
+    type: "position"
+    vector: [1.7894, 1.3037, -0.4059]
+    motion_index: 2
+  - name: "cast_pickup_3_otherhand_position"
+    type: "position"
+    vector: [0.0, 0.20, 0.0]
+    motion_index: 2
+
+  - name: "cast_pickup_4_position"
+    type: "position"
+    vector: [0.9881, -0.1486, -0.4271]
+    motion_index: 3
+  - name: "cast_pickup_4_left_position"
+    type: "position"
+    vector: [0.9881, 0.3486, -0.4271]
+    motion_index: 3
+  - name: "cast_pickup_4_otherhand_position"
+    type: "position"
+    vector: [0.0, 0.20, 0.0]
+    motion_index: 3
+
+  - name: "cast_pickup_5_position"
+    type: "position"
+    vector: [0.7715, 0.9096, -0.3840]
+    motion_index: 4
+  - name: "cast_pickup_5_left_position"
+    type: "position"
+    vector: [0.7715, 1.3096, -0.3840]
+    motion_index: 4
+  - name: "cast_pickup_5_otherhand_position"
+    type: "position"
+    vector: [0.0, 0.20, 0.0]
+    motion_index: 4
+
+  - name: "cast_pickup_6_position"
+    type: "position"
+    vector: [0.4943, -1.0652, -0.3898]
+    motion_index: 5
+  - name: "cast_pickup_6_left_position"
+    type: "position"
+    vector: [0.4943, -0.6652, -0.3898]
+    motion_index: 5
+  - name: "cast_pickup_6_otherhand_position"
+    type: "position"
+    vector: [0.0, 0.20, 0.0]
+    motion_index: 5
+

@@ -114,7 +114,7 @@ class ControlNode(Node):
     self.motion_idx = 0
 
     # initialize goal targets — orientation is published as a quaternion (4) not the raw 3-vec
-    goal_dim = 10  # TODO this is hardcoded for now but should be set from config?
+    goal_dim = 3  # TODO this is hardcoded for now but should be set from config?
     self.goal_targets = np.zeros(goal_dim, dtype=np.float32)
 
     # yaw alignment between robot-at-policy-start and motion frame 0 (re-captured each time FSM enters "control")
@@ -293,6 +293,7 @@ class ControlNode(Node):
         self.goal_targets,
       ]
     )
+    print(f"goal targets: {self.goal_targets}")
 
     # --- motion_anchor_ori_b (6) : desired anchor orientation in base frame (6D rotation) ---
     # apply the captured yaw offset so the motion is replayed in the robot's initial heading

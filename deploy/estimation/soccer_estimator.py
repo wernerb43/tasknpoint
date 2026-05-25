@@ -151,13 +151,13 @@ class SoccerEstimatorNode(Node):
     self.target_time = -1.0
 
     config_path = os.path.join(
-      os.path.dirname(__file__), "..", "configs", "g1_tasknpoint.yaml"
+      os.path.dirname(__file__), "..", "configs", "g1_tasknpoint_soccer.yaml"
     )
     with open(config_path) as f:
       config = yaml.safe_load(f)
     goals = {g["name"]: g for g in config["goals"]}
     self.nominal_target_pos_pelvis = np.array(
-      goals["right_kick_position"]["vector"], dtype=np.float64
+      goals["one_step_right_kick_position"]["vector"], dtype=np.float64
     )
     self.nominal_target_pos = np.zeros(3, dtype=np.float64)
 
