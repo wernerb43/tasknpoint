@@ -420,6 +420,11 @@ class MultiTargetMotionCommand(CommandTerm):
     self.body_quat_relative_w[:, :, 0] = 1.0
 
     # Target tracking (world frame) — (num_envs, max_subtargets, 3/4).
+    # Per-episode sampled offset for moving targets, stored in anchor-aligned world frame
+    # so _update_command can apply it every step without re-randomizing.
+    self._moving_target_offset_w = torch.zeros(
+      self.num_envs, max_subtargets, 3, device=self.device
+    )
     self.target_position_w = torch.zeros(
       self.num_envs, max_subtargets, 3, device=self.device
     )
@@ -793,9 +798,13 @@ class MultiTargetMotionCommand(CommandTerm):
           self._target_body_indices_t[mv_mids, s],
           self._target_is_site_t[mv_mids, s],
         )
-        pos_offset = self._target_pos_means_t[mv_mids, s]  # (E_mv, 3), moving body local frame
+        pos_offset = self._target_pos_means_t[mv_mids, s]  # (E_mv, 3), target body local frame
         pos_std = self._target_pos_stds_t[mv_mids, s] * self.target_pos_std_scale
         rand_offset = pos_offset + torch.randn(len(mv_eids), 3, device=self.device) * pos_std
+
+        # Persist per-episode random offset (target-body local frame) so _update_command
+        # reapplies it every step without re-randomizing.
+        self._moving_target_offset_w[mv_eids, s] = rand_offset
 
         self.target_position_w[mv_eids, s] = tgt_pos + quat_apply(tgt_quat, rand_offset)
         self.target_orientation_w[mv_eids, s] = tgt_quat
@@ -1114,11 +1123,12 @@ class MultiTargetMotionCommand(CommandTerm):
         self._target_body_indices_t[motion_ids],  # (E, S)
         self._target_is_site_t[motion_ids],  # (E, S)
       )  # (E, S, 3/4)
-      pos_offset_all = self._target_pos_means_t[motion_ids]  # (E, S, 3), anchor frame
-      anchor_quat = self.robot.data.body_link_quat_w[:, self.robot_anchor_body_index]  # (E, 4)
+      # Use the per-episode random offset sampled at reset (target-body local frame),
+      # rotated by the live target-body orientation each step.
+      rand_offset_all = self._moving_target_offset_w[all_env_ids]  # (E, S, 3), body local
       world_offset_all = quat_apply(
-        anchor_quat[:, None, :].expand(-1, S, -1).reshape(-1, 4),
-        pos_offset_all.reshape(-1, 3),
+        tgt_quat_all.reshape(-1, 4),
+        rand_offset_all.reshape(-1, 3),
       ).reshape(E, S, 3)
       self.target_position_w[has_moving] = (tgt_pos_all + world_offset_all)[has_moving]
       self.target_orientation_w[has_moving] = tgt_quat_all[has_moving]
