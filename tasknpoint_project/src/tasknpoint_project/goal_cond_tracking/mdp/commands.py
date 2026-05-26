@@ -530,13 +530,13 @@ class MultiTargetMotionCommand(CommandTerm):
     Each subtarget emits only the quantity selected by its ``goal_type``:
       "position"    → 3 values:
                         static target  → anchor-frame position (changes as robot moves)
-                        dynamic target → world-frame position  (constant over the episode)
+                        dynamic target → target-body-frame position (the originally sampled offset)
       "orientation" → 4 values (anchor-frame quaternion)
       "velocity"    → 3 values (world-frame linear velocity)
 
-    For dynamic (moving) targets the world-frame position is used directly so
-    that the observation encodes the fixed per-episode task goal and does not
-    change as the robot moves toward the target.
+    For dynamic (moving) targets we emit the originally sampled offset in the
+    target body's local frame — the same value that's rotated into world frame
+    each step to produce the reward target.
     """
     robot_quat_inv = quat_inv(self.robot_anchor_quat_w)  # (E, 4)
     quat_inv_exp = robot_quat_inv[:, None, :].expand(-1, self.max_subtargets, -1)
@@ -568,13 +568,15 @@ class MultiTargetMotionCommand(CommandTerm):
     ):  # for each of the subtarget, add their goal type
       if goal_type == "position":
         # Static → pelvis-relative (tells the policy where the goal is w.r.t. the robot).
-        # Dynamic → world-frame (constant per-episode goal; does not shift as robot moves).
+        # Dynamic → target-body-local (the originally sampled offset, constant per episode).
         dynamic_mask = is_dynamic[:, s].unsqueeze(-1)  # (E, 1)
         pos_obs = torch.where(
           dynamic_mask,
-          self.target_position_w[:, s],  # world frame — constant over the motion
-          target_pos_b[:, s],            # pelvis frame — for static targets
+          self._moving_target_offset_w[:, s],  # target-body local frame
+          target_pos_b[:, s],                  # pelvis frame — for static targets
         )
+        # print out the moving target offset and the target pos in pelvis frame for debugging
+        # print("Moving target offset (body frame):", self._moving_target_offset_w[:, s])
         parts.append(pos_obs)
       elif goal_type == "orientation":
         parts.append(target_ori_b[:, s])
