@@ -8,15 +8,16 @@
 # Goal vector published each tick (9 floats):
 #   [0:3]  right-palm target  = box_center_in_pelvis + R_pelvis.T @ R_box @ right_grasp_offset  (per-motion, from YAML)
 #   [3:6]  left-palm target   = box_center_in_pelvis + R_pelvis.T @ R_box @ left_grasp_offset   (per-motion, from YAML)
-#   [6:9]  otherhand target   = right_palm_in_pelvis + otherhand_offset     (live FK, per-motion)
-#            Y button toggles otherhand_offset between nominal [0,0.25,0] and wide [0,0.40,0].
+#   [6:9]  otherhand target   = otherhand_offset in right-palm local frame   (constant per motion, from YAML)
+#            Y button toggles between nominal [0,0.25,0] and wide [0,0.40,0].
 #
 # right/left offsets are pre-computed from the explicit right/left hand positions stored in
 # the deploy config YAML (cast_pickup_N_position and cast_pickup_N_left_position).
 # Offsets are defined in the box frame so both hand goals track the box live as it is
 # moved AND as it changes orientation (R_box rotates the offset into world/pelvis frame).
-# The otherhand goal (3rd) matches the training generated_commands output for the
-# relative-hand sub-target (source=left_palm, target_link=right_palm, mean=[0,0.25,0]).
+# The otherhand goal (3rd) matches the training generated_commands output for dynamic
+# targets: commands.py passes _moving_target_offset_w directly (the per-episode sampled
+# offset in the target body's local frame) with NO frame transformation.  No live FK needed.
 #
 ##
 
@@ -107,16 +108,16 @@ class SimulationNode(Node):
              = box_center_in_pelvis  +  R_pelvis.T @ R_box @ right_grasp_offset[motion_idx]
       [3:6]  left-palm target in pelvis frame
              = box_center_in_pelvis  +  R_pelvis.T @ R_box @ left_grasp_offset[motion_idx]
-      [6:9]  otherhand target in pelvis frame  (live FK)
-             = right_palm_in_pelvis  +  otherhand_offset[motion_idx]
+      [6:9]  otherhand target in right-palm local frame  (constant per motion)
+             = otherhand_offset[motion_idx]  (e.g. [0, 0.25, 0])
 
     The first two offsets are derived from the explicit right/left pre-grab positions
     stored in the YAML (cast_pickup_N_position / cast_pickup_N_left_position) and are
     defined in the box frame.  Multiplying by R_box rotates them into world frame so
     that the hand targets follow the box as it both translates and rotates.
-    The third (otherhand) goal matches the training generated_commands output for the
-    relative-hand sub-target: live right_palm position in pelvis frame plus the
-    grip-width offset ([0, 0.25, 0] from cast_pickup_N_otherhand_position.vector).
+    The third (otherhand) goal matches the training generated_commands output for
+    dynamic targets: the per-episode offset in the target body's local frame is passed
+    directly with no frame transformation (commands.py _moving_target_offset_w).
     """
 
     def __init__(self, config_path: str, apply_noise: bool = False):
@@ -192,8 +193,8 @@ class SimulationNode(Node):
         self._motion_in_progress = False
 
         # Otherhand-width toggle (Y button).
-        # When True  (nominal): otherhand goal = right_palm_in_pelvis + YAML offset ([0,0.25,0]).
-        # When False (wide):    otherhand goal = right_palm_in_pelvis + [0,0.4,0].
+        # When True  (nominal): otherhand goal = YAML offset ([0, 0.25, 0]) in right-palm frame.
+        # When False (wide):    otherhand goal = [0, 0.40, 0] in right-palm frame.
         self._otherhand_wide   = True   # starts in nominal mode
         self._prev_y_pressed   = False  # for rising-edge detection
 
@@ -532,17 +533,13 @@ class SimulationNode(Node):
         right_goal = (box_in_pelvis + R.T @ R_box @ self._right_grasp_offsets[self.motion_idx]).astype(np.float32)
         left_goal  = (box_in_pelvis + R.T @ R_box @ self._left_grasp_offsets[self.motion_idx]).astype(np.float32)
 
-        # Goal 3 (otherhand): live right-palm position in pelvis frame + grip-width offset.
-        # Matches the training generated_commands output for the relative-hand sub-target
-        # (source_link=left_palm, target_link=right_palm, mean=[0,0.25,0] in anchor frame).
-        # Y-button toggle: when _otherhand_wide=False the offset is zeroed out so the
-        # policy sees the left-palm target coinciding with the right palm (zero grip width).
-        right_palm_w       = self.mj_data.site("right_palm").xpos.astype(np.float32)
-        right_palm_pelvis  = (R.T @ (right_palm_w - pelvis_pos)).astype(np.float32)
-        otherhand_offset   = (self._otherhand_offsets[self.motion_idx]          # [0, 0.25, 0] nominal
-                              if self._otherhand_wide
-                              else np.array([0.0, 0.4, 0.0], dtype=np.float32)) # [0, 0.40, 0] wide
-        otherhand_goal     = right_palm_pelvis + otherhand_offset
+        # Goal 3 (otherhand): the per-episode offset in right-palm local frame.
+        # Training (commands.py) emits _moving_target_offset_w directly for dynamic
+        # targets — the constant sampled offset in the target body's local frame — with
+        # NO frame transformation.  No live FK required; just pass the offset as-is.
+        otherhand_goal = (self._otherhand_offsets[self.motion_idx]           # [0, 0.25, 0] nominal
+                          if self._otherhand_wide
+                          else np.array([0.0, 0.35, 0.0], dtype=np.float32))  # [0, 0.40, 0] wide
 
         msg      = Float32MultiArray()
         msg.data = np.concatenate([right_goal, left_goal, otherhand_goal]).tolist()

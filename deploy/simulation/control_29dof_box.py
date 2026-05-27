@@ -5,15 +5,15 @@
 # Goal vector received from the simulation (9 floats):
 #   [0:3]  right-palm target in pelvis frame  (box_centre + R_pelvis.T @ R_box @ right_grasp_offset, per-motion)
 #   [3:6]  left-palm  target in pelvis frame  (box_centre + R_pelvis.T @ R_box @ left_grasp_offset,  per-motion)
-#   [6:9]  otherhand  target in pelvis frame  (right_palm_live + otherhand_offset, per-motion)
+#   [6:9]  otherhand  offset in right-palm local frame  (constant per motion, e.g. [0, 0.25, 0])
 #
 # The first two offsets are derived from the explicit right/left pre-grab positions in
 # the YAML (cast_pickup_N_position / cast_pickup_N_left_position) and are defined in the
 # box frame.  simulation_box.py rotates them via R_box so the hand goals track the box
 # orientation as well as its position, matching the motion_lib.py cast_pickup_N sub_targets.
-# The third (otherhand) goal is the live right-palm FK position plus the grip-width
-# offset ([0, 0.25, 0] from cast_pickup_N_otherhand_position), matching the training
-# generated_commands output for the relative-hand position sub-target.
+# The third (otherhand) goal is the constant per-episode offset in the target body's local
+# frame, matching the training generated_commands output for dynamic targets: commands.py
+# passes _moving_target_offset_w directly with no frame transformation.
 #
 ##
 
@@ -200,9 +200,10 @@ class ControlNode(Node):
         print(f"    anchor_body={anchor_name} (motion idx {self.anchor_body_idx})")
 
         # Pickup has 3 × position goals = 9 floats:
-        #   right_palm_target (3) + left_palm_target (3) + otherhand_target (3).
-        # The 3rd goal is the live right_palm_in_pelvis + grip-width offset,
-        # matching the cast_pickup_N_otherhand_position sub-target in training.
+        #   right_palm_target (3) + left_palm_target (3) + otherhand_offset (3).
+        # The 3rd goal is the constant per-episode offset in right-palm local frame
+        # (e.g. [0, 0.25, 0]), matching the training _moving_target_offset_w output
+        # for the dynamic otherhand sub-target — no FK, no frame transformation.
         self._goal_dim = 9
 
     #################################################################

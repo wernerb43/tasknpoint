@@ -31,17 +31,26 @@ class EvaluateConfig:
   wandb_run_path: str
   """W&B run path in format 'entity/project/run_id'."""
   target_x_min: float
-  """Minimum x of goal point range in anchor (pelvis) frame."""
+  """Minimum x of the goal-point range in anchor (pelvis) frame.
+  In box-pickup mode this is the *box-centre* x; hand targets are derived automatically."""
   target_x_max: float
-  """Maximum x of goal point range in anchor (pelvis) frame."""
+  """Maximum x of the goal-point range in anchor (pelvis) frame."""
   target_y_min: float
-  """Minimum y of goal point range in anchor (pelvis) frame."""
+  """Minimum y of the goal-point range in anchor (pelvis) frame."""
   target_y_max: float
-  """Maximum y of goal point range in anchor (pelvis) frame."""
+  """Maximum y of the goal-point range in anchor (pelvis) frame."""
   target_z_min: float
-  """Minimum z of goal point range in anchor (pelvis) frame."""
+  """Minimum z of the goal-point range in anchor (pelvis) frame."""
   target_z_max: float
-  """Maximum z of goal point range in anchor (pelvis) frame."""
+  """Maximum z of the goal-point range in anchor (pelvis) frame."""
+  box_pickup_mode: bool = False
+  """When True, treat the task as two-handed box pickup (e.g. cast_pickup_* motions).
+  Goal coordinates are sampled as *box-centre* positions in anchor frame.  The two
+  hand targets (sub_target 0 = right palm, sub_target 1 = left palm) are derived by
+  adding each chosen motion's per-hand grip offset to the sampled box centre, so the
+  correct grasp geometry is preserved across the whole reachable workspace.
+  Motion matching is done against each motion's midpoint box centre rather than
+  the raw right-hand nominal position."""
   motion_config: Path | None = None
   """Path to a motion set TOML. Drives --registry-name and robot XML when provided."""
   registry_name: str | None = None
@@ -56,6 +65,13 @@ class EvaluateConfig:
   reset_after_motion_assignment: bool = False
   """Re-trigger env reset after assigning per-env motions so robot initial state matches
   the chosen motion's start frame. When False, motions and targets are overridden in-place."""
+  target_area_range: float = 0.20
+  """Distance threshold (m) for the combined success metric: the minimum goal-position
+  error across the episode must be ≤ this value."""
+  target_phase_range: float = 0.1
+  """Half-width of the phase acceptance window (s) for the combined success metric:
+  the closest-approach step must fall within ±target_phase_range seconds of the
+  goal-phase centre."""
   output_file: str | None = None
   """Optional path to save metrics as JSON."""
 
@@ -92,9 +108,21 @@ def _assign_motions_and_targets(
 ) -> tuple[torch.Tensor, torch.Tensor]:
   """Sample per-env goal points, assign closest motions, and inject world-frame targets.
 
+  Standard mode:
+    goal_pts are single contact points (e.g. racket).  Matched against sub_target[0]
+    means and injected into target slot 0.
+
+  Box-pickup mode (cfg.box_pickup_mode=True):
+    goal_pts are *box-centre* positions in anchor frame.  Motion matching is done
+    against the midpoint of sub_target[0] (right palm) and sub_target[1] (left palm)
+    nominal positions.  After choosing a motion the per-hand grip offsets are added
+    back so that both target slots receive the correct world-frame hand positions:
+      target[0] = box_centre + (right_palm_nominal − box_centre_nominal)
+      target[1] = box_centre + (left_palm_nominal  − box_centre_nominal)
+
   Returns:
-    goal_pts: (num_envs, 3) sampled goal points in anchor frame.
-    chosen: (num_envs,) motion index assigned to each env.
+    goal_pts: (num_envs, 3) sampled points in anchor frame (box centres in box mode).
+    chosen:   (num_envs,) motion index assigned to each env.
   """
   num_envs = cfg.num_envs
 
@@ -103,8 +131,17 @@ def _assign_motions_and_targets(
   goal_pts[:, 1].uniform_(cfg.target_y_min, cfg.target_y_max)
   goal_pts[:, 2].uniform_(cfg.target_z_min, cfg.target_z_max)
 
-  # nominal_targets: (num_motions, 3) — position sub-target means, anchor frame
-  nominal_targets = command._target_pos_means_t[:, 0, :]
+  # Per-motion nominal positions in anchor frame — (num_motions, 3).
+  sub0_means = command._target_pos_means_t[:, 0, :]  # right palm / single contact
+
+  if cfg.box_pickup_mode:
+    # Match goal_pts (box centres) against each motion's nominal box centre.
+    sub1_means = command._target_pos_means_t[:, 1, :]         # left palm
+    box_centres_nominal = (sub0_means + sub1_means) / 2        # (num_motions, 3)
+    nominal_targets = box_centres_nominal
+  else:
+    nominal_targets = sub0_means
+
   dists = torch.cdist(goal_pts, nominal_targets)  # (num_envs, num_motions)
   chosen = dists.argmin(dim=1)                    # (num_envs,)
 
@@ -114,11 +151,30 @@ def _assign_motions_and_targets(
   if cfg.reset_after_motion_assignment:
     env.unwrapped.reset()
 
-  # Convert goal points from anchor frame to world frame and inject.
-  anchor_pos = command.robot.data.body_link_pos_w[:, command.robot_anchor_body_index]
+  # Anchor-frame → world-frame transform.
+  anchor_pos  = command.robot.data.body_link_pos_w[:, command.robot_anchor_body_index]
   anchor_quat = command.robot.data.body_link_quat_w[:, command.robot_anchor_body_index]
-  goal_world = quat_apply(anchor_quat, goal_pts) + anchor_pos
-  command.target_position_w[:, 0, :] = goal_world
+
+  if cfg.box_pickup_mode:
+    # Derive per-env hand targets by adding the chosen motion's grip offsets to the
+    # sampled box centre.  The offsets are the signed distance from the nominal box
+    # centre to each palm's nominal position (constant for a given motion).
+    right_offsets = (sub0_means - box_centres_nominal)[chosen]  # (num_envs, 3)
+    left_offsets  = (sub1_means - box_centres_nominal)[chosen]  # (num_envs, 3)
+
+    goal_right_w = quat_apply(anchor_quat, goal_pts + right_offsets) + anchor_pos
+    goal_left_w  = quat_apply(anchor_quat, goal_pts + left_offsets)  + anchor_pos
+
+    command.target_position_w[:, 0, :] = goal_right_w
+    command.target_position_w[:, 1, :] = goal_left_w
+
+    print(
+      f"[INFO] Box-pickup mode — mean grip offsets from box centre: "
+      f"right {right_offsets.mean(0).tolist()}, left {left_offsets.mean(0).tolist()}"
+    )
+  else:
+    goal_world = quat_apply(anchor_quat, goal_pts) + anchor_pos
+    command.target_position_w[:, 0, :] = goal_world
 
   # Log motion assignment distribution.
   num_motions = len(command.motion_loaders)
@@ -211,9 +267,27 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
   # Assign per-env motions and goal targets.
   goal_pts, chosen = _assign_motions_and_targets(cfg, command, env, device)
 
+  # Pre-compute phase/timing info needed both inside the loop and after.
+  step_dt = env.unwrapped.step_dt
+  motion_lengths = command._time_step_totals[chosen].float()  # (num_envs,)
+  motion_lengths_s = motion_lengths * step_dt                 # (num_envs,) in seconds
+
+  phase_starts_raw = torch.tensor(
+    [command.motion_configs[m].sub_targets[0].target_phase_start for m in chosen.tolist()],
+    device=device,
+  )
+  phase_ends_raw = torch.tensor(
+    [command.motion_configs[m].sub_targets[0].target_phase_end for m in chosen.tolist()],
+    device=device,
+  )
+  # Centre of the goal-phase window in seconds (anchor for the combined success check).
+  nominal_phase_center_s = (phase_starts_raw + phase_ends_raw) / 2 * motion_lengths_s
+
   # Per-env accumulators.
   min_goal_pos_error = torch.full((cfg.num_envs,), float("inf"), device=device)
   min_error_time_step = torch.zeros(cfg.num_envs, dtype=torch.long, device=device)
+  # True for envs where *any* step inside the target phase window had error ≤ target_area_range.
+  in_target_combined = torch.zeros(cfg.num_envs, dtype=torch.bool, device=device)
 
   done_envs = torch.zeros(cfg.num_envs, dtype=torch.bool, device=device)
   success = torch.zeros(cfg.num_envs, dtype=torch.bool, device=device)
@@ -233,6 +307,12 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
       min_goal_pos_error = torch.where(improved, cur_err, min_goal_pos_error)
       min_error_time_step = torch.where(improved, command.time_steps, min_error_time_step)
 
+      # Combined success: flag any env whose current step is inside the target phase
+      # window and whose distance to the goal is already below the threshold.
+      current_time_s = command.time_steps.float() * step_dt
+      in_phase_now = (current_time_s - nominal_phase_center_s).abs() <= cfg.target_phase_range
+      in_target_combined |= active & in_phase_now & (cur_err <= cfg.target_area_range)
+
     terminated = env.unwrapped.termination_manager.terminated
     truncated = env.unwrapped.termination_manager.time_outs
     newly_done = dones.bool() & ~done_envs
@@ -250,44 +330,31 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
   # Goal position metric.
   mean_min_goal_pos_error = min_goal_pos_error.mean().item()
 
-  # Goal phase metric: did the closest approach occur within the motion's phase window?
-  motion_lengths = command._time_step_totals[command.which_motion].float()  # (num_envs,)
-  phase = min_error_time_step.float() / motion_lengths                      # (num_envs,)
+  # Phase error: signed deviation (s) of each env's closest-approach step from that
+  # motion's nominal contact time (midpoint of the raw target-phase window).
+  phase = min_error_time_step.float() / motion_lengths              # (num_envs,) fractional phase
 
-  phase_starts = torch.tensor(
-    [command.motion_configs[m].sub_targets[0].target_phase_start for m in chosen.tolist()],
-    device=device,
-  )
-  phase_ends = torch.tensor(
-    [command.motion_configs[m].sub_targets[0].target_phase_end for m in chosen.tolist()],
-    device=device,
-  )
+  nominal_phase = (phase_starts_raw + phase_ends_raw) / 2          # (num_envs,)
+  phase_offset  = phase - nominal_phase                             # signed, in phase units
+  time_offset_s = phase_offset * motion_lengths_s                   # (num_envs,) in seconds
 
-  step_dt = env.unwrapped.step_dt
-  motion_lengths_s = motion_lengths * step_dt          # (num_envs,) in seconds
-
-  phase_window_increase_s = 0.16                                      # seconds
-  phase_window_increase = phase_window_increase_s / motion_lengths_s  # (num_envs,) in phase
-  phase_starts -= phase_window_increase
-  phase_ends += phase_window_increase
-  in_phase = (phase >= phase_starts) & (phase <= phase_ends)
-  goal_phase_success_rate = in_phase.float().mean().item()
-
-  nominal_phase = (phase_starts + phase_ends) / 2  # (num_envs,)
-  phase_offset = phase - nominal_phase              # signed offset from goal phase center
-
-  time_offset_s = phase_offset * motion_lengths_s      # (num_envs,) in seconds
-  window_half_s = ((phase_ends - phase_starts) / 2 * motion_lengths_s).mean().item()
+  # Half-width of the raw motion-library window (for histogram visualisation only).
+  window_half_s = ((phase_ends_raw - phase_starts_raw) / 2 * motion_lengths_s).mean().item()
 
   plot_path = str(Path(cfg.output_file).with_suffix(".png")) if cfg.output_file else "phase_histogram.png"
   _plot_phase_histogram(time_offset_s, window_half_s, plot_path)
+
+  # Combined success: at least one step inside the target phase window (±target_phase_range s
+  # from the goal-phase centre) had goal-position error ≤ target_area_range.
+  combined_success_rate = in_target_combined.float().mean().item()
 
   metrics = {
     "success_rate": success.float().mean().item(),
     "min_goal_pos_error": mean_min_goal_pos_error,
     "std_goal_pos_error": min_goal_pos_error[success].std().item(),
-    "goal_phase_success_rate": goal_phase_success_rate,
-    "std_phase_time_offset_s": time_offset_s[success].std().item(),
+    "phase_error_s": time_offset_s.abs().mean().item(),
+    "std_phase_error_s": time_offset_s.std().item(),
+    "combined_success_rate": combined_success_rate,
   }
 
   print("\n" + "=" * 50)
