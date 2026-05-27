@@ -327,9 +327,6 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
       )
     step += 1
 
-  # Goal position metric.
-  mean_min_goal_pos_error = min_goal_pos_error.mean().item()
-
   # Phase error: signed deviation (s) of each env's closest-approach step from that
   # motion's nominal contact time (midpoint of the raw target-phase window).
   phase = min_error_time_step.float() / motion_lengths              # (num_envs,) fractional phase
@@ -350,10 +347,10 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
 
   metrics = {
     "success_rate": success.float().mean().item(),
-    "min_goal_pos_error": mean_min_goal_pos_error,
+    "min_goal_pos_error": min_goal_pos_error[success].mean().item(),
     "std_goal_pos_error": min_goal_pos_error[success].std().item(),
-    "phase_error_s": time_offset_s.abs().mean().item(),
-    "std_phase_error_s": time_offset_s.std().item(),
+    "phase_error_s": time_offset_s[success].abs().mean().item(),
+    "std_phase_error_s": time_offset_s[success].std().item(),
     "combined_success_rate": combined_success_rate,
   }
 
