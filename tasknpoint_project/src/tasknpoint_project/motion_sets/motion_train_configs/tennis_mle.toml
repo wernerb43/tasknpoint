@@ -1,0 +1,100 @@
+# Tennis stroke variants only (forehand/backhand + footwork variants).
+
+[robot]
+xml = "robots/g1_tennis_racket_27dof.xml"
+
+[registry]
+train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
+eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"
+
+[[motions]]
+name    = "mle_volley_1"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_1"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_1"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_2"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_3"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_4"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_5"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_6"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_7"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_2"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_3"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_4"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_5"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_6"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_7"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_8"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_8"
+enabled = true
+
+[[motions]]
+name    = "mle_backhand_9"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_9"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_10"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_11"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_12"
+enabled = true
+
+[[motions]]
+name    = "mle_forehand_13"
+enabled = true
