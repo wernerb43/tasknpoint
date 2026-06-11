@@ -1,7 +1,7 @@
 # Tennis stroke variants only (forehand/backhand + footwork variants).
 
 [robot]
-xml = "robots/g1_tennis_racket_27dof.xml"
+xml = "robots/g1_tennis_27dof.xml"
 
 [registry]
 train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
