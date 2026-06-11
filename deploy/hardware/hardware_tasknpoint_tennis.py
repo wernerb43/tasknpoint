@@ -41,18 +41,9 @@ from utils.math_utils import (
   rpy_to_quat,
 )
 
-# Unitree SDK imports
-from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
-from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
-from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import IMUState_
-from unitree_sdk2py.utils.crc import CRC
-from unitree_sdk2py.utils.thread import RecurrentThread
-from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import (
-  MotionSwitcherClient,
-)
+# Unitree SDK imports (C++ wrapper: submodules/unitree_sdk2_wrapper)
+import unitree_interface
+from utils.unitree_utils import RecurrentThread
 
 
 ########################################################################
@@ -182,13 +173,13 @@ class ControlNode(Node):
     self._goals: dict = {}
     self._goals_initialized = False
 
-    # other stuff from unitree's example
+    # robot interface (created in Init) and network interface name
+    self.robot = None
+    self.network = None
+
+    # hardware time and latest state flag
     self.time_ = 0.0
-    self.mode_machine_ = 0
-    self.low_cmd = unitree_hg_msg_dds__LowCmd_()
-    self.low_state = None
-    self.update_mode_machine_ = False
-    self.crc = CRC()
+    self.state_ready = False
 
   #################################################################
   # INITIALIZATION
@@ -302,29 +293,21 @@ class ControlNode(Node):
     names = [g["name"] for g in goals_cfg if g["motion_index"] == self.motion_idx]
     print(f"Goals initialized for motion {self.motion_idx}: {names}")
 
-  # initialize the motion switcher client, publishers, and subscribers
+  # initialize the robot interface, publishers, and subscribers
   def Init(self):
-    # initialize motion switcher client
-    self.msc = MotionSwitcherClient()
-    self.msc.SetTimeout(5.0)
-    self.msc.Init()
+    # create the G1 interface (HG messages); this also initializes DDS on the
+    # given network interface and starts the wrapper's internal 500Hz command
+    # writer + state subscriber threads.
+    self.robot = unitree_interface.UnitreeInterface.create_g1(self.network)
 
-    # wait until we have low-level control of the robot before proceeding
-    status, result = self.msc.CheckMode()
-    while result["name"]:
-      self.msc.ReleaseMode()
-      status, result = self.msc.CheckMode()
-      time.sleep(1)
+    # release any active high-level motion service (loco/sport) so our LowCmd
+    # writes are not fought by it. Replaces the MotionSwitcherClient loop.
+    self.robot.release_motion_control()
 
-    # create publisher #
-    self.lowcmd_publisher_ = ChannelPublisher("rt/lowcmd", LowCmd_)
-    self.lowcmd_publisher_.Init()
+    # Series control for pitch/roll joints (matches previous Mode.PR usage).
+    self.robot.set_control_mode(unitree_interface.ControlMode.PR)
 
-    # create subscribers
-    self.lowstate_subscriber = ChannelSubscriber("rt/lowstate", LowState_)
-    self.lowstate_subscriber.Init(self.LowStateHandler, 10)
-
-    print("Unitree SDK publishers and subscribers initialized successfully.")
+    print("Unitree robot interface initialized successfully.")
 
     # ROS2 publishers
     self.pelvis_imu_state_pub = self.create_publisher(
@@ -376,14 +359,15 @@ class ControlNode(Node):
       interval=LOW_LEVEL_CONTROL_DT, target=self.LowCmdWrite, name="control"
     )
 
-    # wait until we receive the first low state message
-    while self.update_mode_machine_ == False:
+    # wait until we receive the first valid low state from the robot
+    while not self.read_robot_state():
+      print("Waiting for first low state from robot...")
       time.sleep(1)
+    self.state_ready = True
 
     # start the low-level control thread
-    if self.update_mode_machine_ == True:
-      self.lowCmdWriteThreadPtr.Start()
-      print("Low-level robot control thread started successfully.")
+    self.lowCmdWriteThreadPtr.Start()
+    print("Low-level robot control thread started successfully.")
 
   #################################################################
   # ROS PUBLISHING AND CALLBACKS
@@ -515,28 +499,33 @@ class ControlNode(Node):
   # SDK HARDWARE
   #################################################################
 
-  # callback to receive low state messages
-  def LowStateHandler(self, msg: LowState_):
-    self.low_state = msg
+  # read the latest low state from the robot interface and update sensor arrays.
+  # returns True once a valid state has been received from the robot.
+  def read_robot_state(self):
+    st = self.robot.read_low_state()
+    q = np.asarray(st.motor.q, dtype=np.float64)
+    quat = np.asarray(st.imu.quat, dtype=np.float64)
 
-    if self.update_mode_machine_ == False:
-      self.mode_machine_ = self.low_state.mode_machine
-      self.update_mode_machine_ = True
+    # before any DDS state has arrived the wrapper buffers are zero-filled; a
+    # valid IMU quaternion has unit norm, so use that to gate readiness.
+    if q.shape[0] < G1_NUM_MOTOR or np.linalg.norm(quat) < 0.5:
+      return False
 
     # update sensor states under lock
     with self.sensor_lock:
-      # update IMU states
-      self.pelvis_imu_rpy = self.low_state.imu_state.rpy
-      self.pelvis_imu_quaternion = self.low_state.imu_state.quaternion
-      self.pelvis_imu_gyroscope = self.low_state.imu_state.gyroscope
-      self.pelvis_imu_accelerometer = self.low_state.imu_state.accelerometer
+      # update IMU states (wrapper field names: rpy / quat / omega / accel)
+      self.pelvis_imu_rpy = np.asarray(st.imu.rpy, dtype=np.float64)
+      self.pelvis_imu_quaternion = quat
+      self.pelvis_imu_gyroscope = np.asarray(st.imu.omega, dtype=np.float64)
+      self.pelvis_imu_accelerometer = np.asarray(st.imu.accel, dtype=np.float64)
 
       # update joint states
-      for i in range(G1_NUM_MOTOR):
-        self.q[i] = self.low_state.motor_state[i].q
-        self.dq[i] = self.low_state.motor_state[i].dq
-        self.ddq[i] = self.low_state.motor_state[i].ddq
-        self.tau_est[i] = self.low_state.motor_state[i].tau_est
+      self.q[:] = q[:G1_NUM_MOTOR]
+      self.dq[:] = np.asarray(st.motor.dq, dtype=np.float64)[:G1_NUM_MOTOR]
+      self.tau_est[:] = np.asarray(st.motor.tau_est, dtype=np.float64)[:G1_NUM_MOTOR]
+      # wrapper exposes no joint acceleration; downstream uses only q and dq.
+      self.ddq[:] = 0.0
+    return True
 
   # callback to receive pelvis pose messages from perception
   def pelvis_pose_callback(self, msg: PoseStamped):
@@ -607,6 +596,9 @@ class ControlNode(Node):
 
   # main control loop to send low-level commands
   def LowCmdWrite(self):
+    # refresh the latest robot state (IMU + joints) from the wrapper buffers
+    self.read_robot_state()
+
     # update hardware time
     self.time_ += LOW_LEVEL_CONTROL_DT
 
@@ -642,66 +634,50 @@ class ControlNode(Node):
     if self.safety_triggered:
       fsm_state = "damp"
 
-    # [init]: zero out all commands
+    # Build the per-joint command arrays for the active FSM state. The wrapper's
+    # internal 500Hz writer fills mode=1, mode_pr, mode_machine, and CRC; we only
+    # provide q/dq/kp/kd/tau_ff.
+    q_t = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
+    dq_t = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
+    kp = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
+    kd = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
+    tau = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
+
+    # [init]: zero out all commands (arrays already zero)
     if fsm_state == "init":
-      for i in range(G1_NUM_MOTOR):
-        self.low_cmd.mode_pr = Mode.PR
-        self.low_cmd.mode_machine = self.mode_machine_
-        self.low_cmd.motor_cmd[i].mode = 1
-        self.low_cmd.motor_cmd[i].tau = 0.0
-        self.low_cmd.motor_cmd[i].q = 0.0
-        self.low_cmd.motor_cmd[i].dq = 0.0
-        self.low_cmd.motor_cmd[i].kp = 0.0
-        self.low_cmd.motor_cmd[i].kd = 0.0
+      pass
 
     # [damp]: Kd damping, no position tracking
     elif fsm_state == "damp":
-      for i in range(G1_NUM_MOTOR):
-        self.low_cmd.mode_pr = Mode.PR
-        self.low_cmd.mode_machine = self.mode_machine_
-        self.low_cmd.motor_cmd[i].mode = 1
-        self.low_cmd.motor_cmd[i].tau = 0.0
-        self.low_cmd.motor_cmd[i].q = 0.0
-        self.low_cmd.motor_cmd[i].dq = 0.0
-        self.low_cmd.motor_cmd[i].kp = 0.0
-        self.low_cmd.motor_cmd[i].kd = 3.0
+      kd[:] = 3.0
 
     # [home]: interpolate to default joint positions and gains
     elif fsm_state == "home":
       ratio = np.clip(self.fsm_time / self.home_pos_duration, 0.0, 1.0)
-      for i in range(G1_NUM_MOTOR):
-        self.low_cmd.mode_pr = Mode.PR
-        self.low_cmd.mode_machine = self.mode_machine_
-        self.low_cmd.motor_cmd[i].mode = 1
-        self.low_cmd.motor_cmd[i].tau = 0.0
-        self.low_cmd.motor_cmd[i].q = (1.0 - ratio) * self.fsm_start_q[
-          i
-        ] + ratio * self.default_joint_pos[i]
-        self.low_cmd.motor_cmd[i].dq = 0.0
-        self.low_cmd.motor_cmd[i].kp = ratio * self.Kp[i]
-        self.low_cmd.motor_cmd[i].kd = ratio * self.Kd[i]
+      q_t[:] = (1.0 - ratio) * self.fsm_start_q + ratio * np.asarray(
+        self.default_joint_pos, dtype=np.float64
+      )
+      kp[:] = ratio * np.asarray(self.Kp, dtype=np.float64)
+      kd[:] = ratio * np.asarray(self.Kd, dtype=np.float64)
 
     # [control]: read from ROS2 command subscriber
     elif fsm_state == "control":
       with self.cmd_lock:
-        q_cmd = self.q_cmd.copy()
-        dq_cmd = self.dq_cmd.copy()
-        Kp_cmd = self.Kp_cmd.copy()
-        Kd_cmd = self.Kd_cmd.copy()
-        tau_ff_cmd = self.tau_ff_cmd.copy()
-      for i in range(G1_NUM_MOTOR):
-        self.low_cmd.mode_pr = Mode.PR
-        self.low_cmd.mode_machine = self.mode_machine_
-        self.low_cmd.motor_cmd[i].mode = 1
-        self.low_cmd.motor_cmd[i].tau = tau_ff_cmd[i]
-        self.low_cmd.motor_cmd[i].q = q_cmd[i]
-        self.low_cmd.motor_cmd[i].dq = dq_cmd[i]
-        self.low_cmd.motor_cmd[i].kp = Kp_cmd[i]
-        self.low_cmd.motor_cmd[i].kd = Kd_cmd[i]
+        q_t[:] = self.q_cmd
+        dq_t[:] = self.dq_cmd
+        kp[:] = self.Kp_cmd
+        kd[:] = self.Kd_cmd
+        tau[:] = self.tau_ff_cmd
 
-    # check sum commands for safety and then publish
-    self.low_cmd.crc = self.crc.Crc(self.low_cmd)
-    self.lowcmd_publisher_.Write(self.low_cmd)
+    # send the command to the robot (whole-list assignment: pybind11 list
+    # properties are copy-on-read, so element-wise writes would not persist).
+    cmd = self.robot.create_zero_command()
+    cmd.q_target = q_t.tolist()
+    cmd.dq_target = dq_t.tolist()
+    cmd.kp = kp.tolist()
+    cmd.kd = kd.tolist()
+    cmd.tau_ff = tau.tolist()
+    self.robot.write_low_command(cmd)
 
 
 ############################################################################
@@ -738,11 +714,10 @@ def main(args=None):
     pass
   print()
 
-  # initialize the channel factory with the specified network interface
-  ChannelFactoryInitialize(0, args.network)
-
-  # instantiate the custom control class
+  # instantiate the custom control class (DDS is initialized inside the wrapper
+  # using the network interface stored below)
   ctrl_node = ControlNode(args.config)
+  ctrl_node.network = args.network
   ctrl_node.Init()
 
   # spin ROS2 node in background thread

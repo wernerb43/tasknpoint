@@ -1,17 +1,8 @@
 ##
 #
-# Deployment code for Unitree G1 robot — box pickup, autonomous grip control.
+# Deployment code for Unitree G1 robot.
 #
-# Identical to hardware_tasknpoint_box.py except the otherhand grip-width observation
-# is driven automatically by motion phase rather than a joystick button.
-#
-# Grip schedule (per-motion, from g1_tasknpoint_pickup.yaml):
-#   motion_frame == 0                                  → OPEN   ([0, 0.5, 0])
-#   contact_frame  <= motion_frame < end_contact_frame → CLOSED (YAML otherhand vector, e.g. [0, 0.20, 0])
-#   motion_frame >= end_contact_frame                  → OPEN   ([0, 0.5, 0])
-#
-#   contact_frame     = int(contact_phase[motion_idx]     * motion_num_frames[motion_idx])
-#   end_contact_frame = int(end_contact_phase[motion_idx] * motion_num_frames[motion_idx])
+# Common G1 "hg" topics: https://support.unitree.com/home/en/G1_developer/dds_services_interface
 #
 ##
 
@@ -45,6 +36,9 @@ sys.path.append(DEPLOY_DIR)
 # custom imports
 from utils.math_utils import (
   quat_to_rotation_matrix,
+  quat_conjugate,
+  quat_multiply,
+  rpy_to_quat,
 )
 
 # Unitree SDK imports (C++ wrapper: submodules/unitree_sdk2_wrapper)
@@ -112,15 +106,8 @@ ROS_SENSOR_PUBLISH_DT = 0.01  # [sec]
 SAFETY_MAX_TILT = np.radians(60.0)  # [rad]
 
 # Only switch motion when the new nominal is this much closer than the current one.
-_MOTION_SWITCH_HYSTERESIS = 0.05  # metres
-
-# Half the box width: each hand is placed this far to the left/right of the box centre
-# in the pelvis Y-axis.  Right hand → -BOX_WIDTH, left hand → +BOX_WIDTH.
-BOX_WIDTH = 0.25  # metres
-
-# Grip-width values (y-component of otherhand offset in right-palm local frame).
-_GRIP_OPEN_OFFSET   = np.array([0.0, 0.55, 0.0], dtype=np.float32)   # hands apart — pre/post contact
-# Closed value comes from the YAML otherhand vector (e.g. [0, 0.20, 0]) per motion.
+# Prevents rapid oscillation when the ball sits near a boundary between two targets.
+_MOTION_SWITCH_HYSTERESIS = 0.25  # metres
 
 
 ########################################################################
@@ -158,9 +145,9 @@ class ControlNode(Node):
     self.tau_ff_cmd = np.zeros(G1_NUM_MOTOR)
 
     # locks for thread safety
-    self.fsm_lock = threading.Lock()    # protects FSM state
-    self.sensor_lock = threading.Lock() # protects sensor state arrays
-    self.cmd_lock = threading.Lock()    # protects command arrays
+    self.fsm_lock = threading.Lock()  # protects FSM state
+    self.sensor_lock = threading.Lock()  # protects sensor state arrays
+    self.cmd_lock = threading.Lock()  # protects command arrays
 
     # finite state machine state
     self.fsm_state = "init"
@@ -172,22 +159,19 @@ class ControlNode(Node):
     # safety flags
     self.safety_triggered = False
 
-    # perception: pelvis pose from external system (world frame)
-    self.pelvis_pose_position   = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+    # perception: pelvis and ball poses from external system
+    self.pelvis_pose_position = np.array([0.0, 0.0, 0.0], dtype=np.float64)
     self.pelvis_pose_quaternion = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    self.ball_pose_position = np.array([0.0, 0.0, 0.0], dtype=np.float64)
 
-    # box pose from perception (world frame)
-    self.box_pose_position   = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-    self.box_pose_quaternion = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
-
-    # motion frame from control node (updated via ROS topic)
+    # motion frame from control node
     self.motion_frame = 0
     self.motion_idx = 0
 
-    # Autonomous grip state — tracked to log transitions only.
-    # True  = grip CLOSED (contact phase active).
-    # False = grip OPEN   (pre-contact or post-release).
-    self._grip_closed = False
+    # goal targets per motion index, initialized once on first pelvis pose
+    # {motion_idx: {"types": [...], "pos_w": [...], "vel_w": [...], "quat_w": [...]}}
+    self._goals: dict = {}
+    self._goals_initialized = False
 
     # robot interface (created in Init) and network interface name
     self.robot = None
@@ -201,129 +185,113 @@ class ControlNode(Node):
   # INITIALIZATION
   #################################################################
 
+  # load the config file
   def load_config(self, config_path: str):
+    # open the config file and load it
     config_path_full = DEPLOY_DIR + "/configs/" + config_path
     with open(config_path_full, "r") as f:
       config = yaml.safe_load(f)
+
     print("Config file loaded successfully from: [{}].".format(config_path_full))
+
     return config
 
+  # load params from config
   def load_params(self):
-    # time to interpolate to initial position
+    # time to interpolate to initial
     self.home_pos_duration = self.config["home_pos_duration"]  # float
 
     # default joint positions
     self.default_joint_pos = self.config["default_joint_pos"]  # list
 
-    # contact phase fractions — one per motion
+    # motion and contact params
     contact_phase_cfg = self.config["contact_phase"]
     self.contact_phases = (
       contact_phase_cfg if isinstance(contact_phase_cfg, list) else [contact_phase_cfg]
     )
-    # end-contact phase fractions — one per motion (grip opens at this point)
-    end_contact_phase_cfg = self.config["end_contact_phase"]
-    self.end_contact_phases = (
-      end_contact_phase_cfg if isinstance(end_contact_phase_cfg, list) else [end_contact_phase_cfg]
-    )
-
-    # total frame counts per motion (used to convert phase fractions to frame indices)
+    self.contact_duration = float(self.config["contact_duration"])
     self.motion_num_frames = [
       int(np.load(mp if os.path.isabs(mp) else os.path.join(REPO_ROOT, mp))["joint_pos"].shape[0])
       for mp in self.config["motion_paths"]
     ]
 
-    # sanity check: phase lists must cover all motions
-    n_motions = len(self.motion_num_frames)
-    assert len(self.contact_phases)     == n_motions, (
-      f"contact_phase must have {n_motions} entries, got {len(self.contact_phases)}"
-    )
-    assert len(self.end_contact_phases) == n_motions, (
-      f"end_contact_phase must have {n_motions} entries, got {len(self.end_contact_phases)}"
-    )
-
-    # pre-compute absolute contact/end-contact frame indices per motion
-    self.contact_frames = [
-      int(self.contact_phases[i] * self.motion_num_frames[i])
-      for i in range(n_motions)
-    ]
-    self.end_contact_frames = [
-      int(self.end_contact_phases[i] * self.motion_num_frames[i])
-      for i in range(n_motions)
-    ]
-
-    # Parse YAML goals to extract per-motion grasp offsets (mirrors simulation_box.py).
-    goals_cfg = self.config.get("goals", [])
-    _right_by_idx = {
+    # pelvis-frame nominal target position per motion, from config — used for motion selection
+    self._nominal_positions_b = {
       g["motion_index"]: np.array(g["vector"], dtype=np.float32)
-      for g in goals_cfg
+      for g in self.config.get("goals", [])
       if g["type"] == "position"
-      and "left"      not in g["name"]
-      and "otherhand" not in g["name"]
     }
-    _left_by_idx = {
-      g["motion_index"]: np.array(g["vector"], dtype=np.float32)
-      for g in goals_cfg
-      if g["type"] == "position" and "left" in g["name"]
-    }
-    _otherhand_by_idx = {
-      g["motion_index"]: np.array(g["vector"], dtype=np.float32)
-      for g in goals_cfg
-      if g["type"] == "position" and "otherhand" in g["name"]
-    }
-    _default_otherhand = np.array([0.0, 0.20, 0.0], dtype=np.float32)
-    self._otherhand_closed_offsets = np.array(
-      [_otherhand_by_idx.get(i, _default_otherhand) for i in range(n_motions)],
-      dtype=np.float32,
-    )  # (n_motions, 3) — closed-grip offset in right-palm local frame, from YAML
 
-    _nominal_positions = np.array(
-      [_right_by_idx[i] for i in range(n_motions)], dtype=np.float32
-    )
-    _left_positions = np.array(
-      [_left_by_idx[i] for i in range(n_motions)], dtype=np.float32
-    )
-
-    # Box centre and per-hand grasp offsets for goal computation.
-    self._nominal_box_centers = (
-      (_nominal_positions + _left_positions) / 2.0
-    ).astype(np.float32)
-    self._right_grasp_offsets = (
-      _nominal_positions - self._nominal_box_centers
-    ).astype(np.float32)
-    self._left_grasp_offsets = (
-      _left_positions - self._nominal_box_centers
-    ).astype(np.float32)
-
-    # Human-readable motion names
-    self._motion_names = [Path(mp).stem for mp in self.config["motion_paths"]]
+    # human-readable motion names derived from motion_paths filenames
+    self._motion_names = [
+      Path(mp).stem for mp in self.config["motion_paths"]
+    ]
 
     # PD gains
     self.Kp = self.config["Kp"]  # list
     self.Kd = self.config["Kd"]  # list
 
-    # type / length / value checks
+    # type checks
     assert type(self.home_pos_duration) in [float], "home_pos_duration must be a float."
-    assert type(self.default_joint_pos) == list,    "default_joint_pos must be a list."
+    assert type(self.default_joint_pos) == list, "default_joint_pos must be a list."
     assert type(self.Kp) == list, "Kp must be a list."
     assert type(self.Kd) == list, "Kd must be a list."
-    assert len(self.Kp) == G1_NUM_MOTOR, f"Expected {G1_NUM_MOTOR} Kp values, got {len(self.Kp)}."
-    assert len(self.Kd) == G1_NUM_MOTOR, f"Expected {G1_NUM_MOTOR} Kd values, got {len(self.Kd)}."
-    assert self.home_pos_duration >= 3.0, "home_pos_duration must take at least 3 seconds."
+
+    # length checks
+    assert len(self.Kp) == G1_NUM_MOTOR, (
+      f"Expected {G1_NUM_MOTOR} Kp values, got {len(self.Kp)}."
+    )
+    assert len(self.Kd) == G1_NUM_MOTOR, (
+      f"Expected {G1_NUM_MOTOR} Kd values, got {len(self.Kd)}."
+    )
+
+    # value checks
+    assert self.home_pos_duration >= 3.0, (
+      "home_pos_duration must take at least 3 seconds."
+    )
     assert len(self.default_joint_pos) == G1_NUM_MOTOR, (
-      f"Expected {G1_NUM_MOTOR} default joint positions, got {len(self.default_joint_pos)}"
+      f"Expected {G1_NUM_MOTOR} default joint positions, "
+      f"got {len(self.default_joint_pos)}"
     )
     for i in range(G1_NUM_MOTOR):
       assert self.Kp[i] >= 0.0, f"Kp for joint {i} must be non-negative."
       assert self.Kd[i] >= 0.0, f"Kd for joint {i} must be non-negative."
 
     print("Config parameters loaded successfully.")
-    for i in range(n_motions):
-      print(
-        f"  Motion {i} ({self._motion_names[i]}): "
-        f"frames={self.motion_num_frames[i]}  "
-        f"contact=[{self.contact_frames[i]}, {self.end_contact_frames[i]})  "
-        f"closed_offset={self._otherhand_closed_offsets[i].tolist()}"
-      )
+
+  # anchor goal targets to the robot's initial pelvis pose in world frame
+  def init_goals(self, pelvis_pos: np.ndarray, pelvis_quat: np.ndarray):
+    goals_cfg = self.config.get("goals", [])
+    R_init = quat_to_rotation_matrix(pelvis_quat)
+
+    types, pos_w, vel_w, quat_w = [], [], [], []
+    for goal in goals_cfg:
+      if goal["motion_index"] != self.motion_idx:
+        continue
+      vec = np.array(goal["vector"], dtype=np.float32)
+      goal_type = goal["type"]
+      types.append(goal_type)
+      if goal_type == "position":
+        pos_w.append(R_init @ vec + pelvis_pos)
+        vel_w.append(np.zeros(3, dtype=np.float32))
+        quat_w.append(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32))
+      elif goal_type == "velocity":
+        pos_w.append(np.zeros(3, dtype=np.float32))
+        vel_w.append(vec)
+        quat_w.append(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32))
+      elif goal_type == "orientation":
+        pos_w.append(np.zeros(3, dtype=np.float32))
+        vel_w.append(np.zeros(3, dtype=np.float32))
+        quat_w.append(quat_multiply(pelvis_quat, rpy_to_quat(vec)))
+
+    self._goals[self.motion_idx] = {
+      "types": types,
+      "pos_w": pos_w,
+      "vel_w": vel_w,
+      "quat_w": quat_w,
+    }
+    names = [g["name"] for g in goals_cfg if g["motion_index"] == self.motion_idx]
+    print(f"Goals initialized for motion {self.motion_idx}: {names}")
 
   # initialize the robot interface, publishers, and subscribers
   def Init(self):
@@ -352,7 +320,11 @@ class ControlNode(Node):
       Float64, "deploy_robot/hardware_time", 10
     )
     self.goals_pub = self.create_publisher(Float32MultiArray, "deploy_robot/goals", 10)
-    self.which_motion_pub = self.create_publisher(Float64, "deploy_robot/which_motion", 10)
+    self.which_motion_pub = self.create_publisher(
+      Float64, "deploy_robot/which_motion", 10
+    )
+
+    # Hardware specific publishers
     self.fsm_time_pub = self.create_publisher(Float64, "deploy_robot/fsm_time", 10)
 
     # ROS2 subscribers
@@ -362,6 +334,8 @@ class ControlNode(Node):
     self.motion_frame_sub = self.create_subscription(
       Float64, "deploy_robot/motion_frame", self.motion_frame_callback, 10
     )
+
+    # Hardware specific subscribers
     self.fsm_sub = self.create_subscription(
       String, "deploy_robot/fsm", self.fsm_callback, 10
     )
@@ -370,77 +344,74 @@ class ControlNode(Node):
     self.pelvis_pose_sub = self.create_subscription(
       PoseStamped, "/g1_pelvis/pose", self.pelvis_pose_callback, 10
     )
-    self.box_pose_sub = self.create_subscription(
-      PoseStamped, "/box/pose", self.box_pose_callback, 10
+    self.ball_pose_sub = self.create_subscription(
+      PoseStamped, "/ball/target_pose", self.ball_pose_callback, 10
     )
-    # NOTE: no joystick subscriber — grip width is driven autonomously by motion phase.
-
     # sensor publish timer
     self.pub_timer = self.create_timer(ROS_SENSOR_PUBLISH_DT, self.publish_sensor_data)
 
     print("ROS2 publishers and subscribers initialized successfully.")
 
+  # create a thread to run the low-level control loop
   def Start(self):
+    # create a thread for low-level control loop, but do not start it yet
     self.lowCmdWriteThreadPtr = RecurrentThread(
       interval=LOW_LEVEL_CONTROL_DT, target=self.LowCmdWrite, name="control"
     )
+
+    # wait until we receive the first valid low state from the robot
     while not self.read_robot_state():
       print("Waiting for first low state from robot...")
       time.sleep(1)
     self.state_ready = True
+
+    # start the low-level control thread
     self.lowCmdWriteThreadPtr.Start()
     print("Low-level robot control thread started successfully.")
-
-  #################################################################
-  # GRIP SCHEDULE
-  #################################################################
-
-  def _compute_grip_closed(self) -> bool:
-    """Return True when the current motion frame is inside the contact window.
-
-    Grip is CLOSED when:
-      contact_frames[motion_idx] <= motion_frame < end_contact_frames[motion_idx]
-
-    Grip is OPEN (returns False) when motion_frame == 0 (idle), before contact,
-    or after end_contact.
-    """
-    if self.motion_frame == 0:
-      return False  # no motion in progress
-    idx = self.motion_idx
-    return self.contact_frames[idx] <= self.motion_frame < self.end_contact_frames[idx]
 
   #################################################################
   # ROS PUBLISHING AND CALLBACKS
   #################################################################
 
+  # callback to receive FSM state from joystick
   def fsm_callback(self, msg: String):
     with self.fsm_lock:
       self.fsm_state = msg.data
 
+  # callback to receive command messages from ROS2
   def command_callback(self, msg: Float32MultiArray):
+    # expected layout: [q(29), dq(29), Kp(29), Kd(29), tau_ff(29)] = 145 floats
     data = np.array(msg.data, dtype=np.float64)
+
+    # safety check on command length
     if len(data) != 5 * G1_NUM_MOTOR:
       self.get_logger().warn(
         f"Expected {5 * G1_NUM_MOTOR} values in command, got {len(data)}"
       )
       return
+
+    # update command arrays under lock
     nu = G1_NUM_MOTOR
     with self.cmd_lock:
-      self.q_cmd[:]      = data[0 * nu : 1 * nu]
-      self.dq_cmd[:]     = data[1 * nu : 2 * nu]
-      self.Kp_cmd[:]     = data[2 * nu : 3 * nu]
-      self.Kd_cmd[:]     = data[3 * nu : 4 * nu]
+      self.q_cmd[:] = data[0 * nu : 1 * nu]
+      self.dq_cmd[:] = data[1 * nu : 2 * nu]
+      self.Kp_cmd[:] = data[2 * nu : 3 * nu]
+      self.Kd_cmd[:] = data[3 * nu : 4 * nu]
       self.tau_ff_cmd[:] = data[4 * nu : 5 * nu]
 
+  # callback to receive motion frame from control node
   def motion_frame_callback(self, msg: Float64):
     self.motion_frame = int(msg.data)
 
+  # publish sensor data to ROS2 topics
   def publish_sensor_data(self):
     # read sensor data under lock
     with self.sensor_lock:
+      # pelvis IMU state
       pelvis_imu_rpy = (
         np.array(self.pelvis_imu_rpy, dtype=np.float64)
-        if self.pelvis_imu_rpy is not None else np.zeros(3)
+        if self.pelvis_imu_rpy is not None
+        else np.zeros(3)
       )
       pelvis_imu_quat = (
         np.array(self.pelvis_imu_quaternion, dtype=np.float64)
@@ -449,80 +420,71 @@ class ControlNode(Node):
       )
       pelvis_imu_gyro = (
         np.array(self.pelvis_imu_gyroscope, dtype=np.float64)
-        if self.pelvis_imu_gyroscope is not None else np.zeros(3)
+        if self.pelvis_imu_gyroscope is not None
+        else np.zeros(3)
       )
       pelvis_imu_accel = (
         np.array(self.pelvis_imu_accelerometer, dtype=np.float64)
-        if self.pelvis_imu_accelerometer is not None else np.zeros(3)
+        if self.pelvis_imu_accelerometer is not None
+        else np.zeros(3)
       )
-      q       = self.q.copy()
-      dq      = self.dq.copy()
-      ddq     = self.ddq.copy()
+
+      # joint state
+      q = self.q.copy()
+      dq = self.dq.copy()
+      ddq = self.ddq.copy()
       tau_est = self.tau_est.copy()
 
-    # imu_state: [rpy(3), quaternion(4), gyroscope(3), accelerometer(3)]
+    # imu_state: [rpy(3), quaternion(4), gyroscope(3), accelerometer(3)] = 13 floats
     pelvis_imu_msg = Float32MultiArray()
     pelvis_imu_msg.data = np.concatenate(
       [pelvis_imu_rpy, pelvis_imu_quat, pelvis_imu_gyro, pelvis_imu_accel]
     ).tolist()
 
-    # joint_state: [q(29), dq(29), ddq(29), tau_est(29)]
+    # joint_state: [q(29), dq(29), ddq(29), tau_est(29)] = 116 floats
     joint_msg = Float32MultiArray()
     joint_msg.data = np.concatenate([q, dq, ddq, tau_est]).tolist()
 
+    # hardware_time: single float
     time_msg = Float64()
     time_msg.data = self.time_
 
+    # fsm_time: time since entering current state
     fsm_time_msg = Float64()
     fsm_time_msg.data = self.fsm_time
-
-    # ------------------------------------------------------------------
-    # Compute box-pickup goals (mirrors simulation_box.py _publish_goals).
-    # Goals 1 & 2: box-frame grasp offsets rotated to pelvis frame.
-    # Goal 3:      otherhand offset — CLOSED during contact window, OPEN otherwise.
-    # ------------------------------------------------------------------
+    # compute goals in anchor (pelvis) frame
     goals_msg = Float32MultiArray()
     with self.sensor_lock:
-      pelvis_pos_w = np.array(self.pelvis_pose_position,   dtype=np.float32)
-      pelvis_quat  = np.array(self.pelvis_pose_quaternion, dtype=np.float32)  # mocap rigid-body orientation
-      box_pos_w    = np.array(self.box_pose_position,      dtype=np.float32)
-
-    # Box centre expressed in the pelvis frame.
-    R             = quat_to_rotation_matrix(pelvis_quat)
-    box_in_pelvis = R.T @ (box_pos_w - pelvis_pos_w)
-
-    # Grasp targets: BOX_WIDTH offset either side of the box centre in pelvis frame.
-    right_goal = (box_in_pelvis + np.array([0.0, -BOX_WIDTH, 0.0], dtype=np.float32)).astype(np.float32)
-    left_goal  = (box_in_pelvis + np.array([0.0, +BOX_WIDTH, 0.0], dtype=np.float32)).astype(np.float32)
-
-    # Autonomous grip schedule.
-    grip_closed = self._compute_grip_closed()
-    if grip_closed != self._grip_closed:
-      # Log transitions so they are easy to spot in the terminal.
-      idx = self.motion_idx
-      if grip_closed:
-        print(
-          f"[grip] CLOSE  motion={idx}  frame={self.motion_frame}"
-          f"  (contact_frame={self.contact_frames[idx]})"
-          f"  offset={self._otherhand_closed_offsets[idx].tolist()}"
-        )
-      else:
-        print(
-          f"[grip] OPEN   motion={idx}  frame={self.motion_frame}"
-          f"  (end_contact_frame={self.end_contact_frames[idx]})"
-          f"  offset={_GRIP_OPEN_OFFSET.tolist()}"
-        )
-      self._grip_closed = grip_closed
-
-    otherhand_goal = (
-      self._otherhand_closed_offsets[self.motion_idx]  # YAML value, e.g. [0, 0.20, 0]
-      if grip_closed
-      else _GRIP_OPEN_OFFSET                           # [0, 0.5, 0]
-    )
-
-    goals_msg.data = np.concatenate([right_goal, left_goal, otherhand_goal]).tolist()
-
-    # publish
+      pelvis_quat = (
+        np.array(self.pelvis_imu_quaternion, dtype=np.float32)
+        if self.pelvis_imu_quaternion is not None
+        else np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+      )
+      ball_pos_b = np.array(self.ball_pose_position, dtype=np.float32)
+    if self._goals_initialized:
+      pelvis_quat_inv = quat_conjugate(pelvis_quat)
+      g = self._goals[self.motion_idx]
+      motion_frame = self.motion_frame
+      # contact_end_frame = int(
+      #   self.motion_num_frames[self.motion_idx]
+      #   * (self.contact_phases[self.motion_idx] + self.contact_duration)
+      # )
+      goal_vecs = []
+      for goal_type, _, vel_w, goal_quat_w in zip(
+        g["types"], g["pos_w"], g["vel_w"], g["quat_w"]
+      ):
+        if goal_type == "position":
+          if motion_frame == 0:
+            goal_vecs.append(self._nominal_positions_b[self.motion_idx])
+          else:
+            print('motion triggered, sending ball position as goal')
+            goal_vecs.append(ball_pos_b)
+        elif goal_type == "velocity":
+          goal_vecs.append(vel_w)
+        elif goal_type == "orientation":
+          goal_vecs.append(quat_multiply(pelvis_quat_inv, goal_quat_w))
+      goals_msg.data = np.concatenate(goal_vecs).tolist()
+    # publish to ROS2 topics
     which_motion_msg = Float64()
     which_motion_msg.data = float(self.motion_idx)
 
@@ -549,74 +511,98 @@ class ControlNode(Node):
     if q.shape[0] < G1_NUM_MOTOR or np.linalg.norm(quat) < 0.5:
       return False
 
+    # update sensor states under lock
     with self.sensor_lock:
-      # wrapper field names: rpy / quat / omega / accel
-      self.pelvis_imu_rpy           = np.asarray(st.imu.rpy, dtype=np.float64)
-      self.pelvis_imu_quaternion    = quat
-      self.pelvis_imu_gyroscope     = np.asarray(st.imu.omega, dtype=np.float64)
+      # update IMU states (wrapper field names: rpy / quat / omega / accel)
+      self.pelvis_imu_rpy = np.asarray(st.imu.rpy, dtype=np.float64)
+      self.pelvis_imu_quaternion = quat
+      self.pelvis_imu_gyroscope = np.asarray(st.imu.omega, dtype=np.float64)
       self.pelvis_imu_accelerometer = np.asarray(st.imu.accel, dtype=np.float64)
 
-      self.q[:]       = q[:G1_NUM_MOTOR]
-      self.dq[:]      = np.asarray(st.motor.dq, dtype=np.float64)[:G1_NUM_MOTOR]
+      # update joint states
+      self.q[:] = q[:G1_NUM_MOTOR]
+      self.dq[:] = np.asarray(st.motor.dq, dtype=np.float64)[:G1_NUM_MOTOR]
       self.tau_est[:] = np.asarray(st.motor.tau_est, dtype=np.float64)[:G1_NUM_MOTOR]
       # wrapper exposes no joint acceleration; downstream uses only q and dq.
-      self.ddq[:]     = 0.0
+      self.ddq[:] = 0.0
     return True
 
+  # callback to receive pelvis pose messages from perception
   def pelvis_pose_callback(self, msg: PoseStamped):
-    """Update pelvis world-frame pose from motion-capture system."""
     p = msg.pose.position
     q = msg.pose.orientation  # ROS: (x, y, z, w)
     with self.sensor_lock:
-      self.pelvis_pose_position   = np.array([p.x, p.y, p.z], dtype=np.float64)
+      self.pelvis_pose_position = np.array([p.x, p.y, p.z], dtype=np.float64)
       self.pelvis_pose_quaternion = np.array([q.w, q.x, q.y, q.z], dtype=np.float64)
 
-  def box_pose_callback(self, msg: PoseStamped):
-    """Receive live box pose (world frame) from motion capture; auto-select nearest motion."""
-    p = msg.pose.position
-    q = msg.pose.orientation  # ROS: (x, y, z, w)
-    with self.sensor_lock:
-      self.box_pose_position   = np.array([p.x, p.y, p.z], dtype=np.float32)
-      self.box_pose_quaternion = np.array([q.w, q.x, q.y, q.z], dtype=np.float32)
+    if not self._goals_initialized:
+      pelvis_pos = np.array(self.pelvis_pose_position, dtype=np.float32)
+      with self.sensor_lock:
+        pelvis_quat = (
+          np.array(self.pelvis_imu_quaternion, dtype=np.float32)
+          if self.pelvis_imu_quaternion is not None
+          else np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        )
+      old_idx = self.motion_idx
+      for idx in range(len(self.motion_num_frames)):
+        self.motion_idx = idx
+        self.init_goals(pelvis_pos, pelvis_quat)
+      self.motion_idx = old_idx
+      self._goals_initialized = True
 
-    # Don't switch motion while a pickup is in progress.
-    if self.motion_frame > 0 or len(self._nominal_box_centers) <= 1:
+  def ball_pose_callback(self, msg: PoseStamped):
+    p = msg.pose.position
+    # target positions are always sent in local frame!
+    ball_pos_b = np.array([p.x, p.y, p.z], dtype=np.float32)
+
+    with self.sensor_lock:
+      self.ball_pose_position = ball_pos_b
+
+    if not self._goals_initialized:
+      return
+     
+    if self.motion_frame > 0:
       return
 
-    # Auto-select the nearest motion based on box position in pelvis frame.
-    with self.sensor_lock:
-      pelvis_pos_w = np.array(self.pelvis_pose_position,   dtype=np.float32)
-      pelvis_quat  = np.array(self.pelvis_pose_quaternion, dtype=np.float32)  # mocap rigid-body orientation
+    # Select the closest motion nominal. Track both the global best and the
+    # current motion's distance so we can apply hysteresis before switching.
+    best_idx = self.motion_idx
+    best_dist = float("inf")
+    curr_dist = float("inf")
+    for idx, nominal_b in self._nominal_positions_b.items():
+      dist = float(np.linalg.norm(ball_pos_b - nominal_b))
+      if idx == self.motion_idx:
+        curr_dist = dist
+      if dist < best_dist:
+        best_dist = dist
+        best_idx = idx
 
-    R             = quat_to_rotation_matrix(pelvis_quat)
-    box_pos_w     = np.array(self.box_pose_position, dtype=np.float32)
-    box_in_pelvis = (R.T @ (box_pos_w - pelvis_pos_w)).astype(np.float32)
-
-    dists     = np.linalg.norm(self._nominal_box_centers - box_in_pelvis, axis=1)
-    best_idx  = int(np.argmin(dists))
-    best_dist = float(dists[best_idx])
-    curr_dist = float(dists[self.motion_idx])
-
+    # Hysteresis: only commit to a different motion when the candidate is
+    # meaningfully closer than the current one.  Without this, the argmin
+    # oscillates as the ball crosses a nominal boundary, which sends rapid
+    # alternating motion references to the control node and destabilises it.
     if (
       best_idx != self.motion_idx
       and best_dist + _MOTION_SWITCH_HYSTERESIS < curr_dist
     ):
-      nominal = self._nominal_box_centers[best_idx]
-      name    = (self._motion_names[best_idx]
-                 if best_idx < len(self._motion_names) else str(best_idx))
+      nominal = self._nominal_positions_b[best_idx]
+      name = self._motion_names[best_idx] if best_idx < len(self._motion_names) else str(best_idx)
       print(
         f"Motion switch -> {name} (idx {best_idx})  "
         f"nominal=({nominal[0]:.3f}, {nominal[1]:.3f}, {nominal[2]:.3f})  "
-        f"box_b=({box_in_pelvis[0]:.3f}, {box_in_pelvis[1]:.3f}, {box_in_pelvis[2]:.3f})"
+        f"ball=({ball_pos_b[0]:.3f}, {ball_pos_b[1]:.3f}, {ball_pos_b[2]:.3f})"
       )
       self.motion_idx = best_idx
 
+  # main control loop to send low-level commands
   def LowCmdWrite(self):
     # refresh the latest robot state (IMU + joints) from the wrapper buffers
     self.read_robot_state()
 
+    # update hardware time
     self.time_ += LOW_LEVEL_CONTROL_DT
 
+    # read FSM state under lock
     with self.fsm_lock:
       fsm_state = self.fsm_state
 
@@ -628,9 +614,10 @@ class ControlNode(Node):
         self.fsm_start_q = self.q.copy()
       self.prev_fsm_state = fsm_state
 
+    # update fsm time
     self.fsm_time = self.time_ - self.fsm_start_time
 
-    # safety: force damp if pelvis tilts beyond threshold
+    # safety: force damp if pelvis tilts beyond specified threshold
     if not self.safety_triggered:
       with self.sensor_lock:
         rpy = self.pelvis_imu_rpy
@@ -656,15 +643,15 @@ class ControlNode(Node):
     kd = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
     tau = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
 
-    # [init] (arrays already zero)
+    # [init]: zero out all commands (arrays already zero)
     if fsm_state == "init":
       pass
 
-    # [damp]
+    # [damp]: Kd damping, no position tracking
     elif fsm_state == "damp":
       kd[:] = 3.0
 
-    # [home]
+    # [home]: interpolate to default joint positions and gains
     elif fsm_state == "home":
       ratio = np.clip(self.fsm_time / self.home_pos_duration, 0.0, 1.0)
       q_t[:] = (1.0 - ratio) * self.fsm_start_q + ratio * np.asarray(
@@ -673,7 +660,7 @@ class ControlNode(Node):
       kp[:] = ratio * np.asarray(self.Kp, dtype=np.float64)
       kd[:] = ratio * np.asarray(self.Kd, dtype=np.float64)
 
-    # [control]
+    # [control]: read from ROS2 command subscriber
     elif fsm_state == "control":
       with self.cmd_lock:
         q_t[:] = self.q_cmd
@@ -699,18 +686,29 @@ class ControlNode(Node):
 
 
 def main(args=None):
+  # init ROS2
   rclpy.init()
 
+  # parse arguments
   parser = argparse.ArgumentParser(
-    description="Hardware deployment node — box pickup with autonomous grip control."
+    description="Hardware deployment node intended to run onboard the G1 robot."
   )
+  # network interface name argument.
+  # Onboard the robot, DDS reaches the motion-control board over the internal
+  # wired link "eth0" (192.168.123.x), so this defaults to "eth0" and need not
+  # be passed. Override only if running off-board over a different interface.
   parser.add_argument(
-    "--network", type=str, required=True,
-    help='Network interface name. Example: "enp8s0".',
+    "--network",
+    type=str,
+    default="eth0",
+    help='Network interface name for robot communication. Onboard default: "eth0".',
   )
+  # config path argument
   parser.add_argument(
-    "--config", type=str, required=True,
-    help='Config YAML filename. Example: "g1_tasknpoint_pickup.yaml".',
+    "--config",
+    type=str,
+    required=True,
+    help='Path to the config yaml file for hardware. Example: "g1_29dof_hardware.yaml".',
   )
   args = parser.parse_args()
 
@@ -719,11 +717,13 @@ def main(args=None):
     pass
   print()
 
-  # DDS is initialized inside the wrapper using the network interface below.
+  # instantiate the custom control class (DDS is initialized inside the wrapper
+  # using the network interface stored below)
   ctrl_node = ControlNode(args.config)
   ctrl_node.network = args.network
   ctrl_node.Init()
 
+  # spin ROS2 node in background thread
   ros_running = True
 
   def spin_ros():
@@ -736,13 +736,17 @@ def main(args=None):
   ros_thread = threading.Thread(target=spin_ros, daemon=True)
   ros_thread.start()
 
+  # start the control loop
   ctrl_node.Start()
 
+  # run normally
   try:
     while True:
       time.sleep(1)
+  # ctrl + C
   except KeyboardInterrupt:
     print("\nExiting...")
+  # graceful shutdown on any exception
   finally:
     ros_running = False
     ros_thread.join(timeout=1.0)

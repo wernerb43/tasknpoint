@@ -4,3 +4,6 @@
 [submodule "submodules/deploy_robot"]
 	path = submodules/deploy_robot
 	url = git@github.com:sesteban951/deploy_robot.git
+[submodule "submodules/unitree_sdk2_wrapper"]
+	path = submodules/unitree_sdk2_wrapper
+	url = git@github.com:lzyang2000/unitree_sdk2_wrapper.git

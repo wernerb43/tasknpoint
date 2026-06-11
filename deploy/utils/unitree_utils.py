@@ -80,3 +80,55 @@ class RemoteController:
         self.rx = struct.unpack("f", data[8:12])[0]
         self.ry = struct.unpack("f", data[12:16])[0]
         self.ly = struct.unpack("f", data[20:24])[0]
+
+
+############################################################################
+# RECURRENT THREAD
+############################################################################
+
+import threading
+import time
+
+
+class RecurrentThread:
+    """Minimal fixed-rate background thread.
+
+    Drop-in replacement for unitree_sdk2py.utils.thread.RecurrentThread so the
+    hardware control loop no longer depends on the pure-Python SDK. Calls
+    ``target`` every ``interval`` seconds on a daemon thread, compensating for
+    the work time so the average rate stays close to the requested interval.
+    """
+
+    def __init__(self, interval, target, name="recurrent"):
+        self._interval = float(interval)
+        self._target = target
+        self._name = name
+        self._thread = None
+        self._running = False
+
+    def Start(self):
+        self._running = True
+        self._thread = threading.Thread(
+            target=self._run, name=self._name, daemon=True
+        )
+        self._thread.start()
+
+    def Wait(self):
+        if self._thread is not None:
+            self._thread.join()
+
+    def Stop(self):
+        self._running = False
+        self.Wait()
+
+    def _run(self):
+        next_t = time.perf_counter()
+        while self._running:
+            self._target()
+            next_t += self._interval
+            sleep = next_t - time.perf_counter()
+            if sleep > 0:
+                time.sleep(sleep)
+            else:
+                # Fell behind: reset the schedule to avoid busy-spinning to catch up.
+                next_t = time.perf_counter()

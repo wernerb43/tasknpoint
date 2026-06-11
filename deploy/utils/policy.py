@@ -6,9 +6,15 @@
 ##
 
 import numpy as np
-import torch
 import onnx
 import onnxruntime as ort
+
+# torch is only required for .pt policies; ONNX deployment (e.g. onboard the
+# Jetson, where no aarch64 torch wheel is available) does not need it.
+try:
+    import torch
+except ImportError:
+    torch = None
 
 
 ############################################################################
