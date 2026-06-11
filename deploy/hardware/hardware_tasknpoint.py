@@ -107,7 +107,7 @@ SAFETY_MAX_TILT = np.radians(60.0)  # [rad]
 
 # Only switch motion when the new nominal is this much closer than the current one.
 # Prevents rapid oscillation when the ball sits near a boundary between two targets.
-_MOTION_SWITCH_HYSTERESIS = 0.25  # metres
+_MOTION_SWITCH_HYSTERESIS = 0.15  # metres
 
 
 ########################################################################
@@ -479,10 +479,10 @@ class ControlNode(Node):
           else:
             print('motion triggered, sending ball position as goal')
             goal_vecs.append(ball_pos_b)
-        elif goal_type == "velocity":
-          goal_vecs.append(vel_w)
-        elif goal_type == "orientation":
-          goal_vecs.append(quat_multiply(pelvis_quat_inv, goal_quat_w))
+        # elif goal_type == "velocity":
+        #   goal_vecs.append(vel_w)
+        # elif goal_type == "orientation":
+          # goal_vecs.append(quat_multiply(pelvis_quat_inv, goal_quat_w))
       goals_msg.data = np.concatenate(goal_vecs).tolist()
     # publish to ROS2 topics
     which_motion_msg = Float64()
