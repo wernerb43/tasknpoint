@@ -249,7 +249,14 @@ class ControlNode(Node):
 
   # goal callback
   def goal_callback(self, msg):
-    self.goal_targets = np.array(msg.data, dtype=np.float32)
+    data = np.array(msg.data, dtype=np.float32)
+    # The hardware node publishes an empty goals message until it has received
+    # a pelvis pose from perception (_goals_initialized). Ignore goals whose
+    # length does not match the expected goal dimension so we keep the sane
+    # default and the observation stays the size the policy expects.
+    if data.shape[0] != self.goal_targets.shape[0]:
+      return
+    self.goal_targets = data
 
   # motion trigger callback
   def motion_trigger_callback(self, msg):
