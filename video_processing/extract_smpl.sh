@@ -53,6 +53,9 @@ if [[ -n "${PHMR_CONDA_SH:-}" ]]; then
     conda activate "${PHMR_CONDA_ENV:-phmr_pt2.6}"
 fi
 
+# ── Change to PromptHMR repo root (same reason as run_prompthmr.sh) ──────────
+cd "$(dirname "$PROMPTHMR_DATA_ROOT")"
+
 # ── Run extraction ───────────────────────────────────────────────────────────
 echo "Extracting '$ACTION_TITLE' (frames $START_FRAME–$END_FRAME) from:"
 echo "  $RESULTS_PKL"
