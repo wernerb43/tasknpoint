@@ -34,10 +34,9 @@ fi
 
 # ── Derive session name from folder path ────────────────────────────────────
 session_name="$(basename "$SESSION_FOLDER")"
-output_dir="$RESULTS_ROOT/$session_name"
 
 echo "Session:    $SESSION_FOLDER"
-echo "Output dir: $output_dir"
+echo "Output dir: $RESULTS_ROOT/$session_name/<video_stem>/"
 echo ""
 
 # ── Change to PromptHMR repo root ────────────────────────────────────────────
@@ -59,5 +58,5 @@ for video_path in "$SESSION_FOLDER"/*.{mp4,MOV,mov}; do
 
     python "$SCRIPT_DIR/run_prompthmr_on_video.py" \
         --input_video "$video_path" \
-        --output_dir "$output_dir"
+        --output_dir "$RESULTS_ROOT"
 done
