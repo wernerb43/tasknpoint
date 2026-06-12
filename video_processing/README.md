@@ -17,7 +17,7 @@ world4d_fused.pkl
 {action_title}.npz  →  RETARGET_OUTPUTS_ROOT/
 ```
 
-The three shell scripts are thin wrappers that source `config.env` for paths and then call the corresponding Python scripts in the [caltech-tennis-benchmark](https://github.com/idemler/caltech-tennis-benchmark) repo.
+The three shell scripts are thin wrappers that source `config.env` for paths and then call the Python scripts in this directory. The inference script (`run_prompthmr_on_video.py`) adds `PHMR_REPO` (the cloned [caltech-tennis-benchmark](https://github.com/idemler/caltech-tennis-benchmark) repo) to `sys.path` at runtime to import the `Pipeline` class.
 
 ---
 
@@ -67,13 +67,21 @@ python -c "import prompt_hmr; print('imported:', prompt_hmr.__name__)"
 
 You will also need SMPL-X body model files. Create an account at https://smpl-x.is.tue.mpg.de/ and download the models, then point `PROMPTHMR_DATA_ROOT` in `config.env` at the parent directory containing `body_models/smplx/`.
 
-### 2. Install the caltech-tennis-benchmark repo
+### 2. Clone the caltech-tennis-benchmark repo
 
-From the repo root:
+```bash
+git clone https://github.com/idemler/caltech-tennis-benchmark
+```
+
+No pip install needed. Set `PHMR_REPO` in `config.env` to point at the repo root — `run_prompthmr_on_video.py` adds it to `sys.path` at runtime to resolve the `Pipeline` class.
+
+### 3. Install video_processing as a local package
+
+From the `video_processing/` directory:
 
 ```bash
 pip install -e .
-python -c "import prompthmr; print('ok')"
+python -c "from utils import estimate_num_frames, get_smplx_path; print('ok')"
 ```
 
 ---
