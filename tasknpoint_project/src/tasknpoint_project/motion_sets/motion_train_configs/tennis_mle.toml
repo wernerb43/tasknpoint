@@ -5,7 +5,6 @@ xml = "robots/g1_tennis_racket_27dof.xml"
 
 [registry]
 train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
-eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"
 
 [[motions]]
 name    = "mle_volley_1"

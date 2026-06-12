@@ -1,5 +1,5 @@
 <mujoco model="g1_29dof_rev_1_0">
-  <compiler angle="radian" meshdir="assets" autolimits="true"/>
+  <compiler angle="radian" meshdir="../assets" autolimits="true"/>
 
   <default>
     <default class="g1">
@@ -292,6 +292,11 @@
                             material="black"/>
                           <site name="right_palm" pos="0.08 0 0" size="0.01"/>
                           <geom name="right_hand_collision" class="collision" size="0.035" fromto="0.07 0 0 0.15 0.02 0"/>
+                          <body name="tennis_racket" pos="0.08 0 0">
+                            <inertial pos="0 0 0.35" mass="0.1" diaginertia="0.01 0.01 0.001"/>
+                            <geom name="racket_handle" type="capsule" fromto="0 0 0 0 0 0.40" size="0.015" rgba="0.55 0.27 0.07 1"/>
+                            <site name="racket_contact" pos="0 0 0.4" size="0.02"/>
+                          </body>
                         </body>
                       </body>
                     </body>

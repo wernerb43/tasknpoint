@@ -1,11 +1,10 @@
 # Kicks-only motion subset.
 
 [robot]
-xml = "robots/g1_soccer_27dof.xml"
+xml = "robots/training/g1_27dof_training.xml"
 
 [registry]
 train_prefix = "bwerner-california-institute-of-technology-caltech/csv_to_npz"
-eval_prefix  = "bwerner-california-institute-of-technology-caltech-org/wandb-registry-motions"
 
 [[motions]]
 name    = "one_step_right_kick"

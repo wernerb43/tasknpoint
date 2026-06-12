@@ -106,8 +106,7 @@ def main():
     args = dataclasses.replace(args, viewer="viser")
 
     if args.motion_config is not None and args.motion_file is None:
-        # Resolve motion files via train_prefix (project-level W&B access) rather
-        # than eval_prefix (org Registry).  Pre-inject into the env config so the
+        # Resolve motion files from W&B and pre-inject into the env config so the
         # motion-command sampling weights stay consistent with the loaded files.
         motion_files, motion_set = _resolve_motion_files_via_train_registry(args.motion_config)
         with _pre_resolve_env_motions(chosen_task, motion_files, motion_set):

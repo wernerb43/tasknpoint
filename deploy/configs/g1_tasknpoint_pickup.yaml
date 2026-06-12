@@ -1,4 +1,4 @@
-xml_path: "g1_27dof_deploy.xml"
+xml_path: "deployment/g1_27dof_deploy.xml"
 
 policy_path: "/home/blake/tasknpoint/logs/rsl_rl/g1_tracking/pickup_9.onnx"
 

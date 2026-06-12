@@ -79,7 +79,7 @@ def run_play(task_id: str, cfg: PlayConfig):
     if cfg.motion_config is not None:
       from tasknpoint_project.motion_sets.motion_set import MotionSet
       motion_set = MotionSet.from_toml(cfg.motion_config)
-      resolved_registry_name = motion_set.eval_registry()
+      resolved_registry_name = motion_set.train_registry()
       if motion_set.robot_xml is not None:
         import mujoco
         _xml = motion_set.robot_xml

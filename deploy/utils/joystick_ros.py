@@ -16,7 +16,7 @@ from std_msgs.msg import Float32MultiArray, String
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "submodules" / "deploy_robot"))
+sys.path.insert(0, str(REPO_ROOT))
 
 from utils.joystick_utils import JoystickState, rosjoy_to_joystick_state
 from utils.finite_state_machine import FiniteStateMachine

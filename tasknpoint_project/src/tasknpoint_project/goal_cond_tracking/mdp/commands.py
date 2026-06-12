@@ -1260,15 +1260,17 @@ class MultiTargetMotionCommand(CommandTerm):
     """Draw target spheres and source/target link frames for one env (all sub-targets)."""
     source_pos_all = self.get_source_pos_w()[batch].cpu().numpy()  # (S, 3)
     source_quat_all = self.get_source_quat_w()[batch]  # (S, 4)
-    num_active = len(self.motion_configs[self.which_motion[batch].item()].sub_targets)
+    motion_cfg = self.motion_configs[self.which_motion[batch].item()]
+    num_active = len(motion_cfg.sub_targets)
     for s in range(num_active):
       target_pos = self.target_position_w[batch, s].cpu().numpy()
-      visualizer.add_sphere(
-        center=target_pos,
-        radius=0.05,
-        color=(0.0, 1.0, 0.0, 0.7),
-        label=f"target_{batch}_{s}",
-      )
+      if motion_cfg.sub_targets[s].goal_type == "position":
+        visualizer.add_sphere(
+          center=target_pos,
+          radius=0.05,
+          color=(0.0, 1.0, 0.0, 0.7),
+          label=f"target_{batch}_{s}",
+        )
       source_rotm = matrix_from_quat(source_quat_all[s].unsqueeze(0))[0].cpu().numpy()
       visualizer.add_frame(
         position=source_pos_all[s],

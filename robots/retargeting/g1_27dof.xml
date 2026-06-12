@@ -1,5 +1,5 @@
 <mujoco model="g1_mocap">
-  <compiler angle="radian" meshdir="assets"/>
+  <compiler angle="radian" meshdir="../assets"/>
 
   <default>
     <motor ctrlrange="-1 1" ctrllimited="true"/>

@@ -21,7 +21,6 @@ class MotionSet:
     """Loaded motion set from a TOML config file."""
 
     train_prefix: str
-    eval_prefix: str
     _entries: list[tuple[str, bool]]  # (name, enabled)
     robot_xml: str | None = field(default=None)
     """Absolute path to the robot XML, resolved from [robot].xml in the TOML."""
@@ -39,7 +38,6 @@ class MotionSet:
             robot_xml = str((_REPO_ROOT / p).resolve()) if not p.is_absolute() else str(p)
         return cls(
             train_prefix=registry.get("train_prefix", ""),
-            eval_prefix=registry.get("eval_prefix", ""),
             _entries=entries,
             robot_xml=robot_xml,
         )
@@ -50,9 +48,6 @@ class MotionSet:
 
     def train_registry(self) -> str:
         return ",".join(f"{self.train_prefix}/{name}" for name in self.enabled_names)
-
-    def eval_registry(self) -> str:
-        return ",".join(f"{self.eval_prefix}/{name}" for name in self.enabled_names)
 
     def motion_cfgs(self, lib: "dict[str, MotionCfg] | None" = None) -> "list[MotionCfg]":
         """Return MotionCfg entries for the enabled motions, in config order.
@@ -113,9 +108,7 @@ Examples:
 """,
     )
     parser.add_argument("config", type=Path, help="Path to motion set TOML config")
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--eval", action="store_true", help="Print eval registry string")
-    mode.add_argument("--list", action="store_true", help="Print enabled motion names, one per line")
+    parser.add_argument("--list", action="store_true", help="Print enabled motion names, one per line")
     args = parser.parse_args()
 
     ms = MotionSet.from_toml(args.config)
@@ -123,8 +116,6 @@ Examples:
     if args.list:
         for name in ms.enabled_names:
             print(name)
-    elif args.eval:
-        print(ms.eval_registry())
     else:
         print(ms.train_registry())
 

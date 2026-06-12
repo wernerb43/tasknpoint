@@ -18,7 +18,7 @@ from std_msgs.msg import Float64, Float32MultiArray
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "submodules" / "deploy_robot"))
+sys.path.insert(0, str(REPO_ROOT))
 
 from utils.policy import Policy
 from utils.math_utils import (
@@ -106,12 +106,12 @@ class ControlNode(Node):
 
     def _resolve_path(self, p: str) -> Path:
         path = Path(p)
-        return path if path.is_absolute() else REPO_ROOT / path
+        return path if path.is_absolute() else REPO_ROOT.parent / path
 
     def _load_config(self, config_path: str) -> dict:
         path = Path(config_path)
         if not path.is_absolute():
-            candidate = REPO_ROOT / "deploy" / "configs" / config_path
+            candidate = REPO_ROOT / "configs" / config_path
             if candidate.exists():
                 path = candidate
         with open(path, "r") as f:
@@ -169,7 +169,7 @@ class ControlNode(Node):
 
         # find anchor body index in the MuJoCo model body list
         anchor_name = self.policy.metadata["anchor_body_name"]
-        xml_path = REPO_ROOT / "robots" / self.config["xml_path"]
+        xml_path = REPO_ROOT.parent / "robots" / self.config["xml_path"]
         mj_model = mujoco.MjModel.from_xml_path(str(xml_path))
         motion_body_names = [
             mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_BODY, i)

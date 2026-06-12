@@ -20,7 +20,7 @@ from std_msgs.msg import Float64, Float32MultiArray
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "deploy"))
+sys.path.insert(0, str(REPO_ROOT))
 
 from utils.math_utils import (
     quat_conjugate,
@@ -147,13 +147,13 @@ class SimulationNode(Node):
 
     def _resolve_path(self, p: str) -> Path:
         path = Path(p)
-        return path if path.is_absolute() else REPO_ROOT / path
+        return path if path.is_absolute() else REPO_ROOT.parent / path
 
     def _load_config(self, config_path: str) -> dict:
         path = Path(config_path)
         if not path.is_absolute():
             # try relative to deploy/configs/ first
-            candidate = REPO_ROOT / "deploy" / "configs" / config_path
+            candidate = REPO_ROOT / "configs" / config_path
             if candidate.exists():
                 path = candidate
         with open(path, "r") as f:
@@ -166,7 +166,7 @@ class SimulationNode(Node):
         self.default_joints = np.array(self.config["default_joint_pos"])
 
     def _init_simulation(self):
-        xml_path = REPO_ROOT / "robots" / self.config["xml_path"]
+        xml_path = REPO_ROOT.parent / "robots" / self.config["xml_path"]
 
         self.mj_model = mujoco.MjModel.from_xml_path(str(xml_path))
         self.mj_data = mujoco.MjData(self.mj_model)

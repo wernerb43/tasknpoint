@@ -1,6 +1,7 @@
-xml_path: "g1_27dof_deploy.xml"
+xml_path: "deployment/g1_27dof_deploy.xml"
 
-policy_path: "/home/unitree/tasknpoint/deploy/policies/kicks_no_ori.onnx"
+# policy_path: "/home/unitree/tasknpoint/deploy/policies/kicks_no_ori.onnx"
+policy_path: "/home/blake/tasknpoint/logs/rsl_rl/g1_tracking/kicks_no_ori.onnx"
 
 motion_paths:
   - "artifacts/one_step_right_kick.npz"

@@ -213,7 +213,7 @@ def run_evaluate(task_id: str, cfg: EvaluateConfig) -> dict[str, float]:
 
   # Load motion files from W&B.
   api = wandb.Api()
-  registry_name = motion_set.eval_registry() if (motion_set and cfg.registry_name is None) else cfg.registry_name
+  registry_name = motion_set.train_registry() if (motion_set and cfg.registry_name is None) else cfg.registry_name
   if registry_name:
     registry_names = [r.strip() for r in registry_name.split(",")]
     motion_files: list[str] = []
