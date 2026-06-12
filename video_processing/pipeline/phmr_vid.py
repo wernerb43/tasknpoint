@@ -10,8 +10,14 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import Normalize, ToTensor, Compose
 
 import sys
-
-sys.path.insert(0, "pipeline/gvhmr")
+import os as _os
+import prompt_hmr as _phmr_mod
+_phmr_gvhmr = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(_phmr_mod.__file__))),
+    "pipeline", "gvhmr",
+)
+sys.path.insert(0, _phmr_gvhmr)
+del _os, _phmr_mod, _phmr_gvhmr
 from prompt_hmr import load_model as load_phmr
 from pipeline.gvhmr.hmr4d.model.gvhmr.gvhmr_pl_demo import DemoPL
 from pipeline.gvhmr.hmr4d.utils.geo_transform import compute_cam_angvel
