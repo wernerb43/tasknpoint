@@ -1,26 +1,10 @@
-# video_processing
+# Converting human demonstration videos into reference robot trajectories
 
 Scripts for running the PromptHMR → robot retargeting pipeline on raw video files.
 
-## Pipeline overview
-
-```
-1. raw video: run_prompthmr.sh
-    
-    this creates a results_{start}_{end}.pkl  (500-frame chunks in RESULTS_ROOT/)
-
-2. fuse_results.sh
-    this generates a world4d_fused.pkl
-
-3. extract_smpl.sh  (per action clip, with manually chosen start/end frames)
-    this generates video files {action_title}.npz saved to  RETARGET_OUTPUTS_ROOT/
-```
-
-The three shell scripts are thin wrappers that source `config.env` for paths and then call the Python scripts in this directory.
-
 ---
 
-## Installation
+## Installation + environment setup
 
 ### 1. Install PromptHMR
 
@@ -33,7 +17,7 @@ bash scripts/install.sh --pt_version=2.6 --world-video=true
 conda activate phmr_pt2.6
 ```
 
-Then add a `pyproject.toml` at the repo root so it can be pip-installed:
+Then add a `pyproject.toml` at the PromptHMR repo root so it can be pip-installed:
 
 ```toml
 [build-system]
@@ -61,26 +45,30 @@ Ensure an `__init__.py` exists:
 Install and verify:
 
 ```bash
-pip install -e .
+pip install -e . --config-settings editable_mode=compat
 python -c "import prompt_hmr; print('imported:', prompt_hmr.__name__)"
 ```
 
-> **Note:** the editable (`-e`) install is required. It adds the PromptHMR repo root to `sys.path`, which makes the `pipeline/` directory importable. `video_processing/pipeline/` overrides only the files that differ from the original and delegates everything else to PromptHMR's copy via `pkgutil.extend_path`.
+You will also need SMPL-X body model files and PromptHMR model weights. Create an account at https://smpl-x.is.tue.mpg.de/ and download the models by running:
 
-You will also need SMPL-X body model files. Create an account at https://smpl-x.is.tue.mpg.de/ and download the models, then point `PROMPTHMR_DATA_ROOT` in `config.env` at the parent directory containing `body_models/smplx/`.
+```
+# SMPLX family models
+bash scripts/fetch_smplx.sh
+
+# Checkpoints and annotations
+bash scripts/fetch_data.sh
+```
 
 ### 2. Install video_processing as a local package
 
-From the `video_processing/` directory:
+Now `cd` back into the tasknpoint repo. From the `video_processing/` directory run:
 
 ```bash
 pip install -e .
 python -c "from utils import estimate_num_frames, get_smplx_path; print('ok')"
 ```
 
----
-
-## Config setup
+### 3. Set up `config.env`
 
 Copy the template and fill in your machine's paths:
 
@@ -99,11 +87,9 @@ Edit `config.env`:
 | `RESULTS_ROOT` | Where PromptHMR saves `results_*.pkl` chunks |
 | `RETARGET_OUTPUTS_ROOT` | Where extracted `.npz` retargeting files are saved |
 
-`config.env` is gitignored — `config.env.template` is the committed source of truth.
-
 ---
 
-## Usage
+### 4. Set up executables
 
 Make the scripts executable once:
 
@@ -111,57 +97,72 @@ Make the scripts executable once:
 chmod +x run_prompthmr.sh fuse_results.sh extract_smpl.sh
 ```
 
-### Step 1 — Run PromptHMR on a session folder
+## Process human demonstration videos
 
+### 1. Extract raw human pose estimates:
+
+Videos are broken down into 500-frame subsequences. For longer videos, this script will save multiple 500-frame video chunks with a 250 frame overlap window.
+
+To run on an individual folder:
 ```bash
-./run_prompthmr.sh /mnt/datasets/robodataset/05_23_2026_14_30_cast
+bash run_prompthmr_single.sh {path to video folder}
+```
+Outputs will be saved to a ```human_pose_outputs/{video_name}``` folder.
+
+To run on a folder of videos:
+```bash
+bash run_prompthmr.sh {path to video folder}
 ```
 
-Processes every `.mp4`/`.MOV`/`.mov` in the session folder (skips `overhead` files). Saves chunked `results_*.pkl` files to `$RESULTS_ROOT/<session_name>/<video_name>/`.
+Outputs will be saved to a ```human_pose_outputs/{video_folder_name}/{video_name}``` folder.
 
-### Step 2 — Fuse chunks into a single world4d pkl
+### 2. Fuse chunks into a single world4d pkl (optional) 
 
 ```bash
-./fuse_results.sh 05_23_2026_14_30_cast 05_23_2026_14_31_02_000_court1_X_1_14_32_10_123
+bash fuse_results.sh {video_folder} {video_title}
 ```
 
-Optional flags forwarded to `fuse_results_robo.py`:
+Optional flags:
 
 ```bash
---simple    # skip PID matching, just concatenate frames
---force     # overwrite existing world4d_fused.pkl
+--simple    # skips PID matching, just concatenate frames
+--force     # overwrites existing world4d_fused.pkl
 ```
 
 Saves `world4d_fused.pkl` alongside the chunk files.
 
-### Step 3 — Extract an action clip to .npz
+### 3. Extract action demonstration
 
-Open the fused pkl (or a raw chunk) in a viewer (e.g., `run_viser_on_fused_robo_result.py`) to identify the start and end frame of the action you want. Then:
+If your video contains multiple action demonstrations, or is longer than the specified action duration, we also provide the option of cropping the video to the start and end time of the action. 
+
+We also provide an optional script for identifying the start and end frame of the action. To use it, open the fused pkl (or a raw chunk) in a viewer (e.g., `run_viser_on_fused_robo_result.py`) to identify the start and end frame of the action you want. 
+
+
+Next, extract the action sub-sequence by running either:
 ```bash
-./extract_smpl.sh \
+# fused world4d file:
+bash extract_smpl.sh \
+    {path_to_phmr_results_file} \
+    {start_idx} {end_idx} {action_title} \
+    --fused
+
+# raw prompthmr output e.g. results_{startidx}_{endidx}.pkl:
+bash extract_smpl.sh \
     {path_to_phmr_results_file} \
     {start_idx} {end_idx} {action_title}
 ```
 
-
-For example:
-```bash
-./extract_smpl.sh \
-    /mnt/datasets/robo_results/prompthmr_results/05_23_2026_14_30_cast/VIDEO/results_0_499.pkl \
-    85 157 one_hand_baseball_hit
-```
-
-With viser visualization and source video:
+You can also optionally run a viser visualization to view the cropped action sequence:
 
 ```bash
-./extract_smpl.sh \
-    /mnt/datasets/robo_results/prompthmr_results/05_23_2026_14_30_cast/VIDEO/results_0_499.pkl \
-    85 157 one_hand_baseball_hit \
+bash extract_smpl.sh \
+    {path_to_phmr_results_file} \
+    {start_idx} {end_idx} {action_title} \
     --run-viser \
-    --video-path /mnt/datasets/robodataset/05_23_2026_14_30_cast/VIDEO.MOV
+    --video-path {path to original input video}
 ```
 
-Saves `$RETARGET_OUTPUTS_ROOT/one_hand_baseball_hit.npz`.
+This saves retargeted actions to `retarget_outputs/{action_title}.npz`.
 
 ---
 

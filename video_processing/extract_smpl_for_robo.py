@@ -969,7 +969,6 @@ def main(
 
             world3d['camera'][:3, 3] = world3d['camera'][:3, 3] + [2, 0, 0]
 
-            pdb.set_trace()
             verts = (
                 smplx(
                     global_orient=global_orient.to(device),
