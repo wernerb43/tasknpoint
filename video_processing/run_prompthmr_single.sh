@@ -40,19 +40,18 @@ if [[ -n "${PHMR_CONDA_SH:-}" ]]; then
     conda activate "${PHMR_CONDA_ENV:-phmr_pt2.6}"
 fi
 
-# ── Derive output dir from video path ────────────────────────────────────────
 session_name="$(basename "$(dirname "$VIDEO_PATH")")"
-output_dir="$RESULTS_ROOT/$session_name"
 
 echo "Video:      $VIDEO_PATH"
-echo "Output dir: $output_dir"
+echo "Output dir: $RESULTS_ROOT/$session_name/$(basename "${VIDEO_PATH%.*}")/"
 echo ""
 
 # ── Change to PromptHMR repo root so relative paths resolve correctly ────────
 cd "$(dirname "$PROMPTHMR_DATA_ROOT")"
 
 # ── Run ──────────────────────────────────────────────────────────────────────
+# run_prompthmr_on_video.py appends <session_name>/<video_stem> to output_dir itself.
 python "$SCRIPT_DIR/run_prompthmr_on_video.py" \
     --input_video "$VIDEO_PATH" \
-    --output_dir  "$output_dir" \
+    --output_dir  "$RESULTS_ROOT" \
     "$@"
