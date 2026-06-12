@@ -47,7 +47,6 @@ set +o allexport
 
 export PROMPTHMR_DATA_ROOT
 export PROMPTHMR_PRETRAIN_ROOT
-export PHMR_REPO
 
 if [[ -n "${PHMR_CONDA_SH:-}" ]]; then
     source "$PHMR_CONDA_SH"

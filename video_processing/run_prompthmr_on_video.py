@@ -1,16 +1,9 @@
 import os
-import sys
-
-# Resolve `from prompthmr.pipeline import Pipeline` without pip-installing caltennis
-_phmr = os.environ.get("PHMR_REPO", "")
-if _phmr and _phmr not in sys.path:
-    sys.path.insert(0, _phmr)
-
 import torch
 import tyro
 from typing import Optional
 
-from prompthmr.pipeline import Pipeline
+from pipeline import Pipeline
 from prompt_hmr.smpl_family import SMPLX as SMPLX_Layer
 from utils import get_smplx_path, estimate_num_frames
 

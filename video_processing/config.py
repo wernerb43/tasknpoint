@@ -36,7 +36,6 @@ def get_config(name, default=None):
     return os.environ.get(name, _FILE_CONFIG.get(name, default))
 
 
-PHMR_REPO = Path(get_config("PHMR_REPO", "")).resolve()
 PROMPTHMR_DATA_ROOT = get_config("PROMPTHMR_DATA_ROOT", "")
 PROMPTHMR_PRETRAIN_ROOT = get_config("PROMPTHMR_PRETRAIN_ROOT", PROMPTHMR_DATA_ROOT)
 RESULTS_ROOT = get_config("RESULTS_ROOT", "")

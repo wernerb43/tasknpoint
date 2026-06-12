@@ -12,13 +12,7 @@ import sys
 import cv2
 from pathlib import Path
 
-# SMPLX_PATH derived from env rather than caltech-tennis-benchmark's data_config
-SMPLX_PATH = os.path.join(os.environ["PROMPTHMR_DATA_ROOT"], "body_models", "smplx")
-
-# Add PromptHMR model repo to sys.path so prompt_hmr.* imports resolve
-_phmr = os.environ.get("PHMR_REPO", "")
-if _phmr and _phmr not in sys.path:
-    sys.path.insert(0, _phmr)
+SMPLX_PATH = os.path.join(os.environ.get("PROMPTHMR_DATA_ROOT", ""), "body_models", "smplx")
 
 from prompt_hmr.utils.rotation_conversions import axis_angle_to_matrix
 from prompt_hmr.smpl_family import SMPLX as SMPLX_Layer

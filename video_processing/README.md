@@ -17,7 +17,7 @@ world4d_fused.pkl
 {action_title}.npz  →  RETARGET_OUTPUTS_ROOT/
 ```
 
-The three shell scripts are thin wrappers that source `config.env` for paths and then call the Python scripts in this directory. The inference script (`run_prompthmr_on_video.py`) adds `PHMR_REPO` (the cloned [caltech-tennis-benchmark](https://github.com/idemler/caltech-tennis-benchmark) repo) to `sys.path` at runtime to import the `Pipeline` class.
+The three shell scripts are thin wrappers that source `config.env` for paths and then call the Python scripts in this directory.
 
 ---
 
@@ -67,15 +67,7 @@ python -c "import prompt_hmr; print('imported:', prompt_hmr.__name__)"
 
 You will also need SMPL-X body model files. Create an account at https://smpl-x.is.tue.mpg.de/ and download the models, then point `PROMPTHMR_DATA_ROOT` in `config.env` at the parent directory containing `body_models/smplx/`.
 
-### 2. Clone the caltech-tennis-benchmark repo
-
-```bash
-git clone https://github.com/idemler/caltech-tennis-benchmark
-```
-
-No pip install needed. Set `PHMR_REPO` in `config.env` to point at the repo root — `run_prompthmr_on_video.py` adds it to `sys.path` at runtime to resolve the `Pipeline` class.
-
-### 3. Install video_processing as a local package
+### 2. Install video_processing as a local package
 
 From the `video_processing/` directory:
 
@@ -98,7 +90,6 @@ Edit `config.env`:
 
 | Variable | Description |
 |---|---|
-| `PHMR_REPO` | Path to the caltech-tennis-benchmark repo root |
 | `PHMR_CONDA_SH` | Path to `conda.sh` (leave empty to skip activation) |
 | `PHMR_CONDA_ENV` | Conda environment name (default: `phmr_pt2.6`) |
 | `PROMPTHMR_DATA_ROOT` | Directory containing `body_models/smplx/` and `body_models/smpl/` |
