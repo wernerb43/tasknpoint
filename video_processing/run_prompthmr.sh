@@ -40,6 +40,14 @@ echo "Session:    $SESSION_FOLDER"
 echo "Output dir: $output_dir"
 echo ""
 
+# ── Change to PromptHMR repo root ────────────────────────────────────────────
+# PromptHMR code uses relative paths like "data/body_models/..." that must be
+# resolved from the repo root. PROMPTHMR_DATA_ROOT is the data/ subdir, so its
+# parent is the repo root. Python adds the script's directory to sys.path so
+# imports from video_processing/ still work with an absolute script path.
+PHMR_ROOT="$(dirname "$PROMPTHMR_DATA_ROOT")"
+cd "$PHMR_ROOT"
+
 # ── Process each video in the session folder ────────────────────────────────
 for video_path in "$SESSION_FOLDER"/*.{mp4,MOV,mov}; do
     [[ -e "$video_path" ]] || continue
