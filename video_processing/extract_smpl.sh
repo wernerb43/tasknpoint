@@ -28,11 +28,25 @@
 
 set -euo pipefail
 
-RESULTS_PKL="${1:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [extra args]}"
-START_FRAME="${2:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [extra args]}"
-END_FRAME="${3:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [extra args]}"
-ACTION_TITLE="${4:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [extra args]}"
+RESULTS_PKL="${1:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [--fused] [extra args]}"
+START_FRAME="${2:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [--fused] [extra args]}"
+END_FRAME="${3:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [--fused] [extra args]}"
+ACTION_TITLE="${4:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [--fused] [extra args]}"
 shift 4
+
+# ── Parse --fused flag ────────────────────────────────────────────────────────
+# By default the input is treated as a raw PromptHMR results pkl (--is-og-pkl-file).
+# Pass --fused to treat it as a fused world4d pkl instead.
+PKL_TYPE_FLAG="--is-og-pkl-file"
+REMAINING_ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" == "--fused" ]]; then
+        PKL_TYPE_FLAG="--no-is-og-pkl-file"
+    else
+        REMAINING_ARGS+=("$arg")
+    fi
+done
+set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
 
 # ── Load config ──────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,6 +81,6 @@ python "$SCRIPT_DIR/extract_smpl_for_robo.py" \
     --end-frame   "$END_FRAME" \
     --action-title "$ACTION_TITLE" \
     --out-folder  "$RETARGET_OUTPUTS_ROOT" \
-    --is-og-pkl-file \
+    "$PKL_TYPE_FLAG" \
     --no-run-viser \
     "$@"
