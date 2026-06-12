@@ -49,7 +49,7 @@ for video_path in "$SESSION_FOLDER"/*.{mp4,MOV,mov}; do
     video_id="$(basename "$video_path")"
     echo "Running PromptHMR on: $video_id"
 
-    python "$PHMR_REPO/prompthmr/scripts/run_prompthmr_on_video.py" \
+    python "$SCRIPT_DIR/run_prompthmr_on_video.py" \
         --input_video "$video_path" \
         --output_dir "$output_dir"
 done

@@ -40,7 +40,7 @@ fi
 # ── Run fusion ───────────────────────────────────────────────────────────────
 echo "Fusing results for: $SESSION / $VIDEO_NAME"
 
-python "$PHMR_REPO/prompthmr/robo/fuse_results_robo.py" \
+python "$SCRIPT_DIR/fuse_results_robo.py" \
     --folder_name "$RESULTS_ROOT/$SESSION" \
     --video_name  "$VIDEO_NAME" \
     "$@"

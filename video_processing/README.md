@@ -16,7 +16,7 @@ Scripts for running the PromptHMR → robot retargeting pipeline on raw video fi
     this generates video files {action_title}.npz saved to  RETARGET_OUTPUTS_ROOT/
 ```
 
-The three shell scripts are thin wrappers that source `config.env` for paths and then call the corresponding Python scripts in the [caltech-tennis-benchmark](https://github.com/idemler/caltech-tennis-benchmark) repo.
+The three shell scripts are thin wrappers that source `config.env` for paths and then call the Python scripts in this directory.
 
 ---
 
@@ -67,13 +67,13 @@ python -c "import prompt_hmr; print('imported:', prompt_hmr.__name__)"
 
 You will also need SMPL-X body model files. Create an account at https://smpl-x.is.tue.mpg.de/ and download the models, then point `PROMPTHMR_DATA_ROOT` in `config.env` at the parent directory containing `body_models/smplx/`.
 
-### 2. Install the caltech-tennis-benchmark repo
+### 2. Install video_processing as a local package
 
-From the repo root:
+From the `video_processing/` directory:
 
 ```bash
 pip install -e .
-python -c "import prompthmr; print('ok')"
+python -c "from utils import estimate_num_frames, get_smplx_path; print('ok')"
 ```
 
 ---
@@ -90,7 +90,6 @@ Edit `config.env`:
 
 | Variable | Description |
 |---|---|
-| `PHMR_REPO` | Path to the caltech-tennis-benchmark repo root |
 | `PHMR_CONDA_SH` | Path to `conda.sh` (leave empty to skip activation) |
 | `PHMR_CONDA_ENV` | Conda environment name (default: `phmr_pt2.6`) |
 | `PROMPTHMR_DATA_ROOT` | Directory containing `body_models/smplx/` and `body_models/smpl/` |

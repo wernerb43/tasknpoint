@@ -12,15 +12,9 @@ import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 
 
-# SMPLX_PATH derived from env rather than caltech-tennis-benchmark's data_config
-SMPLX_PATH = os.path.join(os.environ["PROMPTHMR_DATA_ROOT"], "body_models", "smplx")
+SMPLX_PATH = os.path.join(os.environ.get("PROMPTHMR_DATA_ROOT", ""), "body_models", "smplx")
 
 from fuse_phmr_results import create_world4d_w_joints_no_camera_transform
-
-# Add PromptHMR model repo to sys.path so prompt_hmr.* imports resolve
-_phmr = os.environ.get("PHMR_REPO", "")
-if _phmr and _phmr not in sys.path:
-    sys.path.insert(0, _phmr)
 
 from prompt_hmr.utils.rotation_conversions import matrix_to_axis_angle, axis_angle_to_matrix
 # from prompt_hmr.utils.rotation_conversions import axis_angle_to_matrix
