@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tasknpoint_video"
+version = "0.1.0"
+description = "PromptHMR → robot retargeting pipeline"
+requires-python = ">=3.9"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tasknpoint_video*"]

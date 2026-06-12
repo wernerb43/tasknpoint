@@ -1,0 +1,6 @@
+README.md
+pyproject.toml
+tasknpoint_video.egg-info/PKG-INFO
+tasknpoint_video.egg-info/SOURCES.txt
+tasknpoint_video.egg-info/dependency_links.txt
+tasknpoint_video.egg-info/top_level.txt
