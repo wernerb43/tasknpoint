@@ -5,16 +5,15 @@ Scripts for running the PromptHMR → robot retargeting pipeline on raw video fi
 ## Pipeline overview
 
 ```
-raw video
-    │
-    ▼  run_prompthmr.sh
-results_{start}_{end}.pkl  (500-frame chunks in RESULTS_ROOT/)
-    │
-    ▼  fuse_results.sh
-world4d_fused.pkl
-    │
-    ▼  extract_smpl.sh  (per action clip, with manually chosen start/end frames)
-{action_title}.npz  →  RETARGET_OUTPUTS_ROOT/
+1. raw video: run_prompthmr.sh
+    
+    this creates a results_{start}_{end}.pkl  (500-frame chunks in RESULTS_ROOT/)
+
+2. fuse_results.sh
+    this generates a world4d_fused.pkl
+
+3. extract_smpl.sh  (per action clip, with manually chosen start/end frames)
+    this generates video files {action_title}.npz saved to  RETARGET_OUTPUTS_ROOT/
 ```
 
 The three shell scripts are thin wrappers that source `config.env` for paths and then call the corresponding Python scripts in the [caltech-tennis-benchmark](https://github.com/idemler/caltech-tennis-benchmark) repo.
@@ -30,7 +29,8 @@ Clone and install the PromptHMR model repo in a separate directory:
 ```bash
 git clone https://github.com/yufu-wang/PromptHMR
 cd PromptHMR
-bash scripts/install.sh --pt_version=2.6
+bash scripts/install.sh --pt_version=2.6 --world-video=true
+conda activate phmr_pt2.6
 ```
 
 Then add a `pyproject.toml` at the repo root so it can be pip-installed:
