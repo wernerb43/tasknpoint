@@ -65,6 +65,8 @@ pip install -e .
 python -c "import prompt_hmr; print('imported:', prompt_hmr.__name__)"
 ```
 
+> **Note:** the editable (`-e`) install is required. It adds the PromptHMR repo root to `sys.path`, which makes the `pipeline/` directory importable. `video_processing/pipeline/` overrides only the files that differ from the original and delegates everything else to PromptHMR's copy via `pkgutil.extend_path`.
+
 You will also need SMPL-X body model files. Create an account at https://smpl-x.is.tue.mpg.de/ and download the models, then point `PROMPTHMR_DATA_ROOT` in `config.env` at the parent directory containing `body_models/smplx/`.
 
 ### 2. Install video_processing as a local package
@@ -134,7 +136,7 @@ Saves `world4d_fused.pkl` alongside the chunk files.
 
 ### Step 3 — Extract an action clip to .npz
 
-Open the fused pkl (or a raw chunk) in a viewer (e.g., `run_viser_on_fused_robo_result.py` in the caltech repo) to identify the start and end frame of the action you want. Then:
+Open the fused pkl (or a raw chunk) in a viewer (e.g., `run_viser_on_fused_robo_result.py`) to identify the start and end frame of the action you want. Then:
 ```bash
 ./extract_smpl.sh \
     {path_to_phmr_results_file} \
