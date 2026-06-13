@@ -4,3 +4,6 @@
 [submodule "submodules/unitree_sdk2_wrapper"]
 	path = submodules/unitree_sdk2_wrapper
 	url = git@github.com:lzyang2000/unitree_sdk2_wrapper.git
+[submodule "submodules/PromptHMR"]
+	path = submodules/PromptHMR
+	url = https://github.com/yufu-wang/PromptHMR

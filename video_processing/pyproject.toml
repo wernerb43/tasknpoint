@@ -7,6 +7,15 @@ name = "tasknpoint_video"
 version = "0.1.0"
 description = "PromptHMR → robot retargeting pipeline"
 requires-python = ">=3.9"
+dependencies = [
+    "joblib",
+    "matplotlib",
+    "numpy",
+    "pillow",
+    "scipy",
+    "tqdm",
+    "tyro",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

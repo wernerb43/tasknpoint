@@ -13,13 +13,9 @@ SESSION_FOLDER="${1:?Usage: $0 <session_folder_path>}"
 
 # ── Load config ──────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ ! -f "$SCRIPT_DIR/config.env" ]]; then
-    echo "ERROR: $SCRIPT_DIR/config.env not found."
-    echo "Copy config.env.template to config.env and fill in your paths."
-    exit 1
-fi
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 set -o allexport
-source "$SCRIPT_DIR/config.env"
+source "$REPO_ROOT/config.env"
 set +o allexport
 
 # Export model paths so prompthmr/config.py picks them up via env vars

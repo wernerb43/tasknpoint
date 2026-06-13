@@ -3,3 +3,10 @@ Name: tasknpoint_video
 Version: 0.1.0
 Summary: PromptHMR → robot retargeting pipeline
 Requires-Python: >=3.9
+Requires-Dist: joblib
+Requires-Dist: matplotlib
+Requires-Dist: numpy
+Requires-Dist: pillow
+Requires-Dist: scipy
+Requires-Dist: tqdm
+Requires-Dist: tyro

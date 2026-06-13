@@ -2,7 +2,14 @@ import os
 from pathlib import Path
 
 
-CONFIG_PATH = Path(__file__).with_name("config.env")
+_REPO_ROOT = Path(__file__).parent.parent
+_DEFAULTS = {
+    "PROMPTHMR_DATA_ROOT":   str(_REPO_ROOT / "submodules" / "PromptHMR" / "data"),
+    "RESULTS_ROOT":          str(_REPO_ROOT / "video_processing" / "human_pose_outputs"),
+    "RETARGET_OUTPUTS_ROOT": str(_REPO_ROOT / "retarget"),
+}
+
+CONFIG_PATH = _REPO_ROOT / "config.env"
 
 
 def _parse_value(raw_value):
@@ -36,9 +43,9 @@ def get_config(name, default=None):
     return os.environ.get(name, _FILE_CONFIG.get(name, default))
 
 
-PROMPTHMR_DATA_ROOT = get_config("PROMPTHMR_DATA_ROOT", "")
+PROMPTHMR_DATA_ROOT   = get_config("PROMPTHMR_DATA_ROOT",   _DEFAULTS["PROMPTHMR_DATA_ROOT"])
 PROMPTHMR_PRETRAIN_ROOT = get_config("PROMPTHMR_PRETRAIN_ROOT", PROMPTHMR_DATA_ROOT)
-RESULTS_ROOT = get_config("RESULTS_ROOT", "")
-RETARGET_OUTPUTS_ROOT = get_config("RETARGET_OUTPUTS_ROOT", "")
+RESULTS_ROOT          = get_config("RESULTS_ROOT",          _DEFAULTS["RESULTS_ROOT"])
+RETARGET_OUTPUTS_ROOT = get_config("RETARGET_OUTPUTS_ROOT", _DEFAULTS["RETARGET_OUTPUTS_ROOT"])
 
-SMPLX_PATH = str(Path(PROMPTHMR_DATA_ROOT) / "body_models" / "smplx") if PROMPTHMR_DATA_ROOT else ""
+SMPLX_PATH = str(Path(PROMPTHMR_DATA_ROOT) / "body_models" / "smplx")
