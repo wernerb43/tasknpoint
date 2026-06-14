@@ -47,9 +47,15 @@ Install the ffmpeg system binaries (needed for frame counting and video decoding
 conda install -c conda-forge ffmpeg -y
 ```
 
-Then register PromptHMR and video_processing as importable packages:
+Then register PromptHMR and video_processing as importable packages.
+
+PromptHMR's upstream repo ships no `pyproject.toml`, and since it's a git
+submodule we can't track one inside it — so copy in the packaging file we keep
+in this repo before installing:
 
 ```bash
+cp video_processing/prompthmr_pyproject.toml submodules/PromptHMR/pyproject.toml
+
 pip install -e submodules/PromptHMR --config-settings editable_mode=compat
 pip install -e video_processing
 ```
@@ -78,8 +84,6 @@ chmod +x video_processing/run_prompthmr.sh \
          video_processing/fuse_results.sh \
          video_processing/extract_smpl.sh
 ```
-
-No `config.env` setup is needed — all paths are resolved automatically from the repo structure.
 
 ---
 

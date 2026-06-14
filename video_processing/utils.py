@@ -14,4 +14,10 @@ def estimate_num_frames(video_path):
         "-of", "default=nokey=1:noprint_wrappers=1", video_path,
     ]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return int(result.stdout)
+    out = result.stdout.strip()
+    if result.returncode != 0 or not out:
+        raise RuntimeError(
+            f"ffprobe failed for {video_path!r} (exit {result.returncode}): "
+            f"{result.stderr.decode(errors='replace').strip()}"
+        )
+    return int(out)

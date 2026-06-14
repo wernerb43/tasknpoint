@@ -1,3 +1,88 @@
+# Setup
+
+## Installation
+
+The repo uses two separate environments:
+
+| Environment | Purpose | Manager |
+|---|---|---|
+| `tasknpoint` (uv) | Robot training / MuJoCo | `uv sync` |
+| `phmr_pt2.6` (conda) | Video processing / PromptHMR | conda + pip |
+
+### 1. Clone the repo with submodules
+
+PromptHMR is included as a submodule — no separate clone needed.
+
+```bash
+git clone --recurse-submodules https://github.com/wernerb43/tasknpoint
+# or, if already cloned:
+git submodule update --init
+```
+
+### 2. Set up the tasknpoint environment
+
+```bash
+uv sync   # from repo root
+```
+
+### 3. Set up the phmr environment
+
+Run PromptHMR's provided install script, which creates the conda env and installs
+torch, xformers, torch-scatter, chumpy, and all other deps:
+
+```bash
+cd submodules/PromptHMR
+bash scripts/install.sh --pt_version=2.6 --world-video=true   # or --pt_version=2.4
+conda activate phmr_pt2.6
+cd ../..
+```
+
+Install the ffmpeg system binaries (needed for frame counting and video decoding):
+
+```bash
+conda install -c conda-forge ffmpeg -y
+```
+
+Then register PromptHMR and video_processing as importable packages.
+
+PromptHMR's upstream repo ships no `pyproject.toml`, and since it's a git
+submodule we can't track one inside it — so copy in the packaging file we keep
+in this repo before installing:
+
+```bash
+cp video_processing/prompthmr_pyproject.toml submodules/PromptHMR/pyproject.toml
+
+pip install -e submodules/PromptHMR --config-settings editable_mode=compat
+pip install -e video_processing
+```
+
+### 4. Download model weights
+
+From inside the PromptHMR submodule:
+
+```bash
+cd submodules/PromptHMR
+
+# SMPL-X family body models (requires free account at smpl-x.is.tue.mpg.de)
+bash scripts/fetch_smplx.sh
+
+# PromptHMR checkpoints and annotations
+bash scripts/fetch_data.sh
+
+cd ../..
+```
+
+### 5. Make scripts executable (once)
+
+```bash
+chmod +x video_processing/run_prompthmr.sh \
+         video_processing/run_prompthmr_single.sh \
+         video_processing/fuse_results.sh \
+         video_processing/extract_smpl.sh
+```
+
+---
+
 # Pipeline steps:
 
 ### step 1: retarget motions

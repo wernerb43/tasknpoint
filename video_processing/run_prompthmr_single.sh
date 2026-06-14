@@ -20,6 +20,9 @@ set -euo pipefail
 VIDEO_PATH="${1:?Usage: $0 <video_path> [extra args]}"
 shift
 
+# Resolve to an absolute path now, before we cd elsewhere below.
+VIDEO_PATH="$(cd "$(dirname "$VIDEO_PATH")" && pwd)/$(basename "$VIDEO_PATH")"
+
 # ── Load config ──────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

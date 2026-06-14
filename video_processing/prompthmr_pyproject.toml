@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prompthmr"           # install name; import name is still prompt_hmr
+version = "0.0.1"
+description = "PromptHMR: Promptable Human Mesh Recovery"
+readme = "README.md"
+requires-python = ">=3.9"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["prompt_hmr*"]
