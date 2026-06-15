@@ -522,8 +522,6 @@ def viser_vis_world4d_z_up(
         quat = np.concatenate([quat[3:], quat[:3]])
         trans = camera[:3, 3]
 
-        print("\n \n trans: ", trans, "\n \n")
-
         if image is not None and max(image.shape) > img_maxsize:
             scale = img_maxsize / max(image.shape)
             image = cv2.resize(
@@ -1188,11 +1186,6 @@ def main(
     smplx_beta_16 = np.concatenate([smplx_beta, pad], axis=1)
     smplx_beta_16 = smplx_beta_16[0:1,:]
 
-    print(smplx_pose_body.shape)
-    print(smplx_beta_16.shape)
-    print(smplx_root_orient.shape)
-    print(smplx_trans.shape)
-
     retargeting_file = {
     "pose_body": smplx_pose_body, # T, 63
     "betas": smplx_beta_16, # 1, 16
@@ -1201,8 +1194,6 @@ def main(
     "gender": "neutral",
     "mocap_frame_rate": 30,
     }
-
-    print("ll_verts[:,:,2].min(): ", all_verts[:,:,2].min())
 
 
     out_path = out_folder / f"{action_title}.npz"
@@ -1282,5 +1273,4 @@ def main(
 
 
 if __name__ == "__main__":
-    print("hi")
     tyro.cli(main)

@@ -5,28 +5,93 @@ import pathlib
 import sys
 import time
 
+# MuJoCo selects its GL backend when the `mujoco` module is first imported, so
+# this must happen BEFORE the imports below. In --headless mode we force an
+# offscreen backend (default: EGL) so the renderer works with no X display.
+if "--headless" in sys.argv and not os.environ.get("MUJOCO_GL"):
+    os.environ["MUJOCO_GL"] = "egl"
+
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 GMR_PATH = pathlib.Path(__file__).parent.parent / "submodules" / "GMR"
 sys.path.insert(0, str(GMR_PATH))
 
+import mujoco
+import imageio
 from general_motion_retargeting import GeneralMotionRetargeting as GMR
 from general_motion_retargeting import RobotMotionViewer as _BaseRobotMotionViewer
+from general_motion_retargeting import (
+    ROBOT_XML_DICT,
+    ROBOT_BASE_DICT,
+    VIEWER_CAM_DISTANCE_DICT,
+)
 from general_motion_retargeting.utils.smpl import load_smplx_file, get_smplx_data_offline_fast
 import general_motion_retargeting.params as _gmr_params
+from loop_rate_limiters import RateLimiter
 from rich import print
 
 INITIAL_ROBOT_HEIGHT = 0.79
 
 
 class RobotMotionViewer(_BaseRobotMotionViewer):
-    def __init__(self, *args, keyboard_callback=None, **kwargs):
+    def __init__(self, *args, keyboard_callback=None, headless=False, **kwargs):
         self._user_key_callback = keyboard_callback
         self.paused = False
         self.current_frame = 0
         self.total_frames = 0
-        super().__init__(*args, keyboard_callback=self._key_callback, **kwargs)
+        self.headless = headless
+        if headless:
+            # Headless path: never open the interactive (GLFW) window, so no X
+            # display / xvfb is needed. Rendering for --record_video uses the
+            # offscreen mj.Renderer instead, which works with MUJOCO_GL=egl.
+            self._init_headless(*args, **kwargs)
+        else:
+            super().__init__(*args, keyboard_callback=self._key_callback, **kwargs)
+
+    def _init_headless(
+        self,
+        robot_type,
+        camera_follow=True,
+        motion_fps=30,
+        transparent_robot=0,
+        record_video=False,
+        video_path=None,
+        video_width=640,
+        video_height=480,
+        **_,
+    ):
+        # Mirrors _BaseRobotMotionViewer.__init__ but skips mjv.launch_passive().
+        self.robot_type = robot_type
+        self.xml_path = ROBOT_XML_DICT[robot_type]
+        self.model = mujoco.MjModel.from_xml_path(str(self.xml_path))
+        self.data = mujoco.MjData(self.model)
+        self.robot_base = ROBOT_BASE_DICT[robot_type]
+        self.viewer_cam_distance = VIEWER_CAM_DISTANCE_DICT[robot_type]
+        mujoco.mj_step(self.model, self.data)
+
+        self.motion_fps = motion_fps
+        self.rate_limiter = RateLimiter(frequency=self.motion_fps, warn=False)
+        self.camera_follow = camera_follow
+        self.record_video = record_video
+        self.viewer = None
+
+        # Standalone camera: the base class reuses the passive viewer's camera,
+        # which doesn't exist here, so we own one for the offscreen renderer.
+        self.cam = mujoco.MjvCamera()
+        mujoco.mjv_defaultCamera(self.cam)
+
+        if self.record_video:
+            assert video_path is not None, "Please provide video path for recording"
+            self.video_path = video_path
+            video_dir = os.path.dirname(self.video_path)
+            if video_dir and not os.path.exists(video_dir):
+                os.makedirs(video_dir)
+            self.mp4_writer = imageio.get_writer(self.video_path, fps=self.motion_fps)
+            print(f"Recording video to {self.video_path}")
+            self.renderer = mujoco.Renderer(
+                self.model, height=video_height, width=video_width
+            )
 
     def _key_callback(self, keycode):
         if keycode == 32:  # space bar
@@ -40,12 +105,54 @@ class RobotMotionViewer(_BaseRobotMotionViewer):
             self._user_key_callback(keycode)
 
     def step(self, *args, rate_limit=True, **kwargs):
+        if self.headless:
+            self._step_headless(*args, **kwargs)
+            if rate_limit:
+                self.rate_limiter.sleep()
+            return
         super().step(*args, rate_limit=False, **kwargs)
         while self.paused:
             self.viewer.sync()
             time.sleep(0.05)
         if rate_limit:
             self.rate_limiter.sleep()
+
+    def _step_headless(
+        self,
+        root_pos,
+        root_rot,
+        dof_pos,
+        human_motion_data=None,
+        show_human_body_name=False,
+        human_point_scale=0.1,
+        human_pos_offset=np.array([0.0, 0.0, 0.0]),
+        follow_camera=True,
+    ):
+        # Updates state and, if recording, renders one offscreen frame. The human
+        # joint-frame markers drawn in the live viewer are skipped here (they need
+        # the passive viewer's user_scn); the robot motion itself is unaffected.
+        self.data.qpos[:3] = root_pos
+        self.data.qpos[3:7] = root_rot  # quat is scalar-first for mujoco
+        self.data.qpos[7:] = dof_pos
+        mujoco.mj_forward(self.model, self.data)
+
+        if follow_camera:
+            self.cam.lookat = self.data.xpos[self.model.body(self.robot_base).id]
+            self.cam.distance = self.viewer_cam_distance
+            self.cam.elevation = -10
+
+        if self.record_video:
+            self.renderer.update_scene(self.data, camera=self.cam)
+            img = self.renderer.render()
+            self.mp4_writer.append_data(img)
+
+    def close(self):
+        if self.headless:
+            if self.record_video:
+                self.mp4_writer.close()
+                print(f"Video saved to {self.video_path}")
+            return
+        super().close()
 
 
 if __name__ == "__main__":
@@ -72,7 +179,17 @@ if __name__ == "__main__":
     parser.add_argument("--rate_limit", default=False, action="store_true")
     parser.add_argument("--cam_distance_scale", type=float, default=1.5)
     parser.add_argument("--follow_camera", default=False, action="store_true")
+    parser.add_argument(
+        "--headless",
+        default=False,
+        action="store_true",
+        help="Skip the interactive viewer (no X display / xvfb needed). "
+        "Use with --record_video to still produce a video via offscreen EGL rendering.",
+    )
     args = parser.parse_args()
+
+    # Note: MUJOCO_GL for --headless is set at the top of this file, before the
+    # mujoco import, since the backend is chosen at import time.
 
     if args.robot_xml is not None:
         _gmr_params.ROBOT_XML_DICT[args.robot] = pathlib.Path(args.robot_xml)
@@ -101,8 +218,9 @@ if __name__ == "__main__":
         motion_fps=aligned_fps,
         transparent_robot=0,
         record_video=args.record_video,
-        video_path=f"videos/{args.robot}_{args.smplx_file.split('/')[-1].split('.')[0]}.mp4",
+        video_path=str(HERE / "videos" / f"{args.robot}_{args.smplx_file.split('/')[-1].split('.')[0]}.mp4"),
         # cam_distance_scale=args.cam_distance_scale,
+        headless=args.headless,
     )
     robot_motion_viewer.total_frames = len(smplx_data_frames) - start_frame
 

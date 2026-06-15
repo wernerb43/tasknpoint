@@ -34,17 +34,29 @@ END_FRAME="${3:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_t
 ACTION_TITLE="${4:?Usage: $0 <results_pkl_path> <start_frame> <end_frame> <action_title> [--fused] [extra args]}"
 shift 4
 
+# Resolve a possibly-relative path to absolute, before we cd elsewhere below.
+abspath() { echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; }
+
+RESULTS_PKL="$(abspath "$RESULTS_PKL")"
+
 # ── Parse --fused flag ────────────────────────────────────────────────────────
 # By default the input is treated as a raw PromptHMR results pkl (--is-og-pkl-file).
 # Pass --fused to treat it as a fused world4d pkl instead.
+# Also resolve --video-path to an absolute path (relative paths break after cd).
 PKL_TYPE_FLAG="--is-og-pkl-file"
 REMAINING_ARGS=()
+prev=""
 for arg in "$@"; do
     if [[ "$arg" == "--fused" ]]; then
         PKL_TYPE_FLAG="--no-is-og-pkl-file"
+    elif [[ "$prev" == "--video-path" ]]; then
+        REMAINING_ARGS+=("$(abspath "$arg")")
+    elif [[ "$arg" == --video-path=* ]]; then
+        REMAINING_ARGS+=("--video-path=$(abspath "${arg#--video-path=}")")
     else
         REMAINING_ARGS+=("$arg")
     fi
+    prev="$arg"
 done
 set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
 
@@ -67,16 +79,19 @@ fi
 cd "$(dirname "$PROMPTHMR_DATA_ROOT")"
 
 # ── Run extraction ───────────────────────────────────────────────────────────
+# Outputs go under retarget/retarget_inputs.
+OUTPUT_FOLDER="$RETARGET_OUTPUTS_ROOT/retarget_inputs"
+
 echo "Extracting '$ACTION_TITLE' (frames $START_FRAME–$END_FRAME) from:"
 echo "  $RESULTS_PKL"
-echo "Output folder: $RETARGET_OUTPUTS_ROOT"
+echo "Output folder: $OUTPUT_FOLDER"
 
 python "$SCRIPT_DIR/extract_smpl_for_robo.py" \
     --results-pkl-path "$RESULTS_PKL" \
     --start-frame "$START_FRAME" \
     --end-frame   "$END_FRAME" \
     --action-title "$ACTION_TITLE" \
-    --out-folder  "$RETARGET_OUTPUTS_ROOT" \
+    --out-folder  "$OUTPUT_FOLDER" \
     "$PKL_TYPE_FLAG" \
     --no-run-viser \
     "$@"

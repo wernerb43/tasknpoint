@@ -6,6 +6,7 @@ logs/
 wandb/
 retarget/retarget_inputs/
 retarget/retarget_outputs/
+retarget/videos/
 
 tasknpoint/videos/*
 tasknpoint/**/.mp4
