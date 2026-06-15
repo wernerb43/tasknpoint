@@ -1,4 +1,12 @@
-# TaskNPoint Repo
+<div align="center">
+<h1> TaskNPoint: How to Teach Your Humanoid to Hit a Backhand in Minutes </h1>
+</div>
+
+<div align="center">
+  🌐 <a href="">Project Page</a> |
+  📚 <a href="">Paper</a>
+
+</div>
 
 ## Installation
 
@@ -290,4 +298,21 @@ To also visualize blobs:
 uv run play-viser-motion-ranges Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/48cdla54 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only.toml
+```
+
+## License
+
+This project is released under the [MIT License](LICENSE.md). Bundled
+submodules (PromptHMR, GMR, unitree_sdk2_wrapper) retain their own licenses —
+see each submodule for details.
+
+## Citing TaskNPoint
+
+```
+@inproceedings{tasknpoint2026,
+    author    = {Werner, Blake and Demler, Ilona and Perona, Pietro and Ames, Aaron D.},
+    title     = {TaskNPoint: How to Teach Your Humanoid to Hit a Backhand in Minutes},
+    booktitle = {Under Review},
+    year      = {2026},
+}
 ```
