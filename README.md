@@ -144,7 +144,7 @@ chmod +x video_processing/run_prompthmr.sh \
 
 ### Step 1: Reconstruct human poses
 
-Follow the steps in the [video_processing](video_processing/README.md) folder to reconstruct human poses. The scripts will by default store retargeting inputs in a  `video_processing/retarget_inputs` folder. 
+Follow the steps in the [video_processing](video_processing/README.md) folder to reconstruct human poses. The scripts will by default store retargeting inputs in a `retarget/retarget_inputs` folder.
 
 ### Step 2: retarget motions
 
@@ -152,7 +152,7 @@ Next you will retarget the human motion to the unitree humanoid. You can save a 
 
 ```
 uv run python retarget/construct_motion.py \
-    --smplx_file retarget/retarge_outputs/{motion}.npz \
+    --smplx_file retarget/retarget_inputs/{motion}.npz \
     --robot unitree_g1 \
     --save_path retarget/retarget_outputs/{motion} \
     --robot_xml robots/retargeting/g1_27dof.xml
@@ -173,7 +173,7 @@ xvfb-run -a uv run python retarget/construct_motion.py \
 
 ### step 3: convert to .npz format
 
-First, create a new motion element titled after the motion that you just retargeted in [motion_lib.py](/home/bwerner/tasknpoint/tasknpoint_project/src/tasknpoint_project/motion_sets/motion_lib.py). We provide some examples to start with. Make sure to specifiy the ```probe_points``` at which the goal occurs. This should be a nubmer between 0 and 1.
+First, create a new motion element titled after the motion that you just retargeted in [motion_lib.py](tasknpoint_project/src/tasknpoint_project/motion_sets/motion_lib.py). We provide some examples to start with. Make sure to specify the ```probe_points``` at which the goal occurs. This should be a number between 0 and 1.
 
 Next, convert the saved retargeted motion to the format expected by the training script:
 ```
@@ -188,7 +188,7 @@ MUJOCO_GL=egl uv run --directory tasknpoint_project python \
 
 ```
 
-We provide different motion configurations in the [motion_train_configs](tasknpoint_project/src/tasknpoint_project/motion_sets/motion_train_configs) folder, including tennis, soccer, and box pickup. By specifying which motion configuration to use, you will be able to print the relevant link coordinate that you will specify in [motion_lib.py](/home/bwerner/tasknpoint/tasknpoint_project/src/tasknpoint_project/motion_sets/motion_lib.py). The script will print something like:
+We provide different motion configurations in the [motion_train_configs](tasknpoint_project/src/tasknpoint_project/motion_sets/motion_train_configs) folder, including tennis, soccer, and box pickup. By specifying which motion configuration to use, you will be able to print the relevant link coordinate that you will specify in [motion_lib.py](tasknpoint_project/src/tasknpoint_project/motion_sets/motion_lib.py). The script will print something like:
 
 
 ```
@@ -206,7 +206,7 @@ PROBE POINT POSITIONS
 ============================================================
 ```
 
-You will then set the orientation, position, and velocity goals accordingly. Please refer to [motion_lib.py](/home/bwerner/tasknpoint/tasknpoint_project/src/tasknpoint_project/motion_sets/motion_lib.py) for further detailed examples.
+You will then set the orientation, position, and velocity goals accordingly. Please refer to [motion_lib.py](tasknpoint_project/src/tasknpoint_project/motion_sets/motion_lib.py) for further detailed examples.
 
 All motion configs are in the [motion_sets](tasknpoint_project/src/tasknpoint_project/motion_sets/) folder:
 - [motion_lib.py](tasknpoint_project/src/tasknpoint_project/motion_sets/motion_lib.py) — motion specs (positions, phases, weights)
@@ -214,7 +214,7 @@ All motion configs are in the [motion_sets](tasknpoint_project/src/tasknpoint_pr
 
 ### step 4: launch training
 
-To train TaskNPoint policies, first `cd` into the `tasknpoint_project/`. From here, you can launch trianing by running:
+To train TaskNPoint policies, first `cd` into the `tasknpoint_project/`. From here, you can launch training by running:
 
 ```
 # single motion (pass registry name directly):

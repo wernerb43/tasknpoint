@@ -49,7 +49,7 @@ bash video_processing/extract_smpl.sh \
     --run-viser --video-path <path/to/original_video.MOV>
 ```
 
-Saves retargeted actions to `retarget/<action_title>.npz`.
+Saves retargeted actions to `retarget/retarget_inputs/<action_title>.npz`.
 
 ---
 
