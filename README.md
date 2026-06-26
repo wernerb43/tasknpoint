@@ -3,8 +3,8 @@
 </div>
 
 <div align="center">
-  🌐 <a href="">Project Page</a> |
-  📚 <a href="">Paper</a>
+  🌐 <a href="https://ilonadem.github.io/tasknpoint_website/">Project Page</a> |
+  📚 <a href="https://arxiv.org/pdf/2606.26215">Paper</a>
 
 </div>
 
