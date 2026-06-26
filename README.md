@@ -309,10 +309,10 @@ see each submodule for details.
 ## Citing TaskNPoint
 
 ```
-@inproceedings{tasknpoint2026,
+@article{tasknpoint2026,
     author    = {Werner, Blake and Demler, Ilona and Perona, Pietro and Ames, Aaron D.},
     title     = {TaskNPoint: How to Teach Your Humanoid to Hit a Backhand in Minutes},
-    booktitle = {Under Review},
+    journal   = {https://arxiv.org/pdf/2606.26215},
     year      = {2026},
 }
 ```
