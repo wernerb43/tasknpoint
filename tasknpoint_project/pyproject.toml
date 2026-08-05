@@ -11,16 +11,21 @@ dependencies = [
     "mjlab>=1.3.0",
 ]
 
+# All scripts are prefixed `tnp-` so they cannot be shadowed by mjlab, which
+# installs into the same venv and declares `train`, `play`, `demo`, `list-envs`,
+# `viz-nan` and `export-scene` of its own. Whichever package is installed last
+# wins an unprefixed name, so a bare `train` silently ran mjlab's trainer.
 [project.scripts]
 tasknpoint-project = "tasknpoint_project:main"
-train        = "tasknpoint_project.scripts.train:main"
-play         = "tasknpoint_project.scripts.play:main"
-demo         = "tasknpoint_project.scripts.demo:main"
-list-envs    = "tasknpoint_project.scripts.list_envs:main"
-viz-nan      = "tasknpoint_project.scripts.nan_viz:main"
-export-scene = "tasknpoint_project.scripts.export_scene:main"
-play-viser   = "tasknpoint_project.scripts.play_viser:main"
-play-viser-motion-ranges = "tasknpoint_project.scripts.play_viser_w_motion_ranges:main"
+tnp-train        = "tasknpoint_project.scripts.train:main"
+tnp-play         = "tasknpoint_project.scripts.play:main"
+tnp-demo         = "tasknpoint_project.scripts.demo:main"
+tnp-list-envs    = "tasknpoint_project.scripts.list_envs:main"
+tnp-viz-nan      = "tasknpoint_project.scripts.nan_viz:main"
+tnp-export-scene = "tasknpoint_project.scripts.export_scene:main"
+tnp-motion-set   = "tasknpoint_project.motion_sets.motion_set:main"
+tnp-play-viser   = "tasknpoint_project.scripts.play_viser:main"
+tnp-play-viser-motion-ranges = "tasknpoint_project.scripts.play_viser_w_motion_ranges:main"
 
 [project.entry-points."mjlab.tasks"]
 tasknpoint = "tasknpoint_project.goal_cond_tracking.config.g1"

@@ -218,39 +218,39 @@ To train TaskNPoint policies, first `cd` into the `tasknpoint_project/`. From he
 
 ```
 # single motion (pass registry name directly):
-uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+uv run tnp-train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --registry-name demalenk-california-institute-of-technology-caltech/csv_to_npz/backhand \
     --env.scene.num-envs 4096
 
 # motion set — all motions (TOML drives registry + robot XML):
-uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+uv run tnp-train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/all_motions.toml \
     --env.scene.num-envs 4096
 
 # motion set — tennis only:
-uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+uv run tnp-train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only.toml \
     --env.scene.num-envs 4096
 
 # motion set — tennis only expanded:
-uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+uv run tnp-train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only_expanded.toml \
     --env.scene.num-envs 4096
 
 # motion set — kicks only:
-uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+uv run tnp-train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/kicks_only.toml \
     --env.scene.num-envs 4096
 
 # box grab:
-uv run train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+uv run tnp-train Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/box_grab.toml \
     --env.scene.num-envs 4096
 ```
 
 To see which motions a set contains:
 ```
-uv run motion-set src/tasknpoint_project/motion_sets/motion_train_configs/all_motions.toml --list
+uv run tnp-motion-set src/tasknpoint_project/motion_sets/motion_train_configs/all_motions.toml --list
 ```
 
 ## Evals
@@ -281,7 +281,7 @@ Omitting it uses the train prefix (`csv_to_npz`).
 ## Play script:
 
 ```
-uv run play Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+uv run tnp-play Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/i4tr5j7v \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only_fast.toml
 
@@ -290,12 +290,12 @@ uv run play Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
 To run with VISER!:
 
 ```
- uv run play-viser Mjlab-MultiTarget-Tracking-Flat-Unitree-G1     --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/0ulgzbgg     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/box_grab.toml
+ uv run tnp-play-viser Mjlab-MultiTarget-Tracking-Flat-Unitree-G1     --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/0ulgzbgg     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/box_grab.toml
 ```
 
 To also visualize blobs:
 ```
-uv run play-viser-motion-ranges Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
+uv run tnp-play-viser-motion-ranges Mjlab-MultiTarget-Tracking-Flat-Unitree-G1 \
     --wandb-run-path bwerner-california-institute-of-technology-caltech/mjlab/48cdla54 \
     --motion-config src/tasknpoint_project/motion_sets/motion_train_configs/tennis_only.toml
 ```
