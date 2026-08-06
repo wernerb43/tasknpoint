@@ -98,13 +98,10 @@ def main() -> None:
         epilog="""
 Examples:
   # Train registry string (default)
-  uv run motion-set motion_sets/all_motions.toml
-
-  # Eval registry string
-  uv run motion-set motion_sets/all_motions.toml --eval
+  uv run tnp-motion-set motion_sets/tennis_only.toml
 
   # List enabled motion names
-  uv run motion-set motion_sets/all_motions.toml --list
+  uv run tnp-motion-set motion_sets/tennis_only.toml --list
 """,
     )
     parser.add_argument("config", type=Path, help="Path to motion set TOML config")

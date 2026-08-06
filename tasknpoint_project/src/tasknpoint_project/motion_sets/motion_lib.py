@@ -7,6 +7,12 @@ import numpy as np
 
 from tasknpoint_project.goal_cond_tracking.mdp import MotionCfg, MotionGoalCfg
 
+# Ablation knob: simulated annotation error on the contact-phase labels.
+# Every sub-target's [target_phase_start, target_phase_end] window of every motion is
+# shifted by this amount (in phase units, i.e. fraction of the motion clip).
+# Positive => targets fire later, negative => earlier.  0.0 = no ablation.
+annotation_error = -0.05
+
 vel_ori_window = 0.004 # phase window before and after position window
 kick_window_x = 0.100
 kick_window_y = 0.100
@@ -2506,6 +2512,25 @@ MOTION_LIB: dict[str, MotionCfg] = {
       ),
     ],
   ),
-  
+
 
 }
+
+
+def _apply_annotation_error(
+  motion_lib: dict[str, MotionCfg], error: float
+) -> dict[str, MotionCfg]:
+  """Shift every sub-target's phase window by ``error``, clamped to [0, 1].
+
+  Mutates and returns ``motion_lib`` in place.  A no-op when ``error`` is 0.
+  """
+  if error == 0.0:
+    return motion_lib
+  for motion in motion_lib.values():
+    for sub_target in motion.sub_targets:
+      sub_target.target_phase_start = min(max(sub_target.target_phase_start + error, 0.0), 1.0)
+      sub_target.target_phase_end = min(max(sub_target.target_phase_end + error, 0.0), 1.0)
+  return motion_lib
+
+
+_apply_annotation_error(MOTION_LIB, annotation_error)
